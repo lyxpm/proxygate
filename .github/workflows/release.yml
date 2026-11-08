@@ -116,6 +116,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,11 +131,12 @@ jobs:
             args+=(--prerelease)
           fi
           gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "ProxyGate ${GITHUB_REF_NAME}" \
             --generate-notes \
             "${args[@]}"
 
-          gh release view "${GITHUB_REF_NAME}" --json body -q .body > release-body.md
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json body -q .body > release-body.md
           cat >> release-body.md <<EOF
 
           ---
@@ -146,4 +149,4 @@ jobs:
 
           Digest: \`${DIGEST}\`
           EOF
-          gh release edit "${GITHUB_REF_NAME}" --notes-file release-body.md
+          gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --notes-file release-body.md
