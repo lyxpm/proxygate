@@ -1,0 +1,15 @@
+services:
+  proxygate:
+    image: ${PROXYGATE_IMAGE:-ghcr.io/lyxpm/proxygate:latest}
+    container_name: proxygate
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "18080:18080"
+      - "18443:18443"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: Asia/Shanghai

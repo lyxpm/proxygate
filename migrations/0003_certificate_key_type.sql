@@ -1,0 +1,1 @@
+ALTER TABLE certificates ADD COLUMN key_type TEXT NOT NULL DEFAULT 'P256';

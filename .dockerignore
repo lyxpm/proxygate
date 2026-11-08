@@ -1,0 +1,15 @@
+.git
+.tools
+.gitignore
+data
+data-dev
+tmp-*
+proxygate.exe
+web/node_modules
+web/dist
+docs/screens
+*.log
+*.zip
+.pnpm-store
+backups
+dist
