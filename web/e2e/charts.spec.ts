@@ -18,18 +18,24 @@ test.describe('ECharts 6 charts regression', () => {
     await login(page)
 
     await page.goto('/dashboard')
+    await expect(page.getByText('请求趋势').first()).toBeVisible()
     await expect(page.getByText('流量趋势').first()).toBeVisible()
+    await expect(page.getByText('HTTP 状态码分布').first()).toBeVisible()
     await expect(page.locator('.chart canvas').first()).toBeVisible({ timeout: 15_000 })
     const dashboardCharts = await page.locator('.chart canvas').count()
-    expect(dashboardCharts).toBeGreaterThanOrEqual(1)
+    expect(dashboardCharts).toBeGreaterThanOrEqual(3)
 
     await page.getByRole('menuitem', { name: '流量分析' }).click()
     await expect(page).toHaveURL(/\/statistics/)
     await expect(page.getByText('请求与流量趋势')).toBeVisible()
-    await expect(page.getByText('状态码分布')).toBeVisible()
     await expect(page.locator('.chart canvas').first()).toBeVisible({ timeout: 15_000 })
-    const statisticsCharts = await page.locator('.chart canvas').count()
-    expect(statisticsCharts).toBeGreaterThanOrEqual(2)
+    expect(await page.locator('.chart canvas').count()).toBeGreaterThanOrEqual(1)
+
+    const metricSwitch = page.locator('.metric-switch')
+    await metricSwitch.getByText('流量', { exact: true }).click()
+    await expect(page.locator('.chart canvas').first()).toBeVisible()
+    await metricSwitch.getByText('响应时间', { exact: true }).click()
+    await expect(page.locator('.chart canvas').first()).toBeVisible()
 
     expect(errors).toEqual([])
   })

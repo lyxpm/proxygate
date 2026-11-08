@@ -63,14 +63,12 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 		return nil, err
 	}
 	index := make(map[int64]*Point)
-	var order []int64
 	for _, r := range rows {
 		key := r.BucketTime.UTC().Truncate(step).Unix()
 		p := index[key]
 		if p == nil {
 			p = &Point{Time: time.Unix(key, 0).UTC()}
 			index[key] = p
-			order = append(order, key)
 		}
 		p.Requests += r.RequestCount
 		p.Inbound += r.InboundBytes
@@ -83,10 +81,20 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 			p.AvgMS += r.ResponseTimeSum
 		}
 	}
-	out := make([]Point, 0, len(order))
-	for _, key := range order {
-		p := index[key]
-		if p.Requests > 0 {
+	// Keep the chart's time axis continuous even when there are no requests
+	// in a bucket. Without this, a sparse day collapses to a single point and
+	// a line chart degenerates into a vertical mark.
+	start := from.UTC().Truncate(step)
+	end := to.UTC().Truncate(step)
+	if end.Before(start) {
+		end = start
+	}
+	out := make([]Point, 0, int(end.Sub(start)/step)+1)
+	for key := start; !key.After(end); key = key.Add(step) {
+		p := index[key.Unix()]
+		if p == nil {
+			p = &Point{Time: key}
+		} else if p.Requests > 0 {
 			// ResponseTimeSum was accumulated in AvgMS temporarily.
 			p.AvgMS /= p.Requests
 		}

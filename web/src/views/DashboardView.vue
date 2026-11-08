@@ -8,70 +8,80 @@
         <el-tag v-else type="info" effect="light">引擎状态未知</el-tag>
         <span v-if="engine" class="muted tiny">配置版本 {{ engine.config_version }}</span>
         <span v-if="engine?.last_error" class="muted tiny" style="color: #ef4444">{{ engine.last_error }}</span>
+        <span class="updated-at">更新于 {{ updatedLabel }}</span>
       </div>
       <div class="toolbar-right">
-        <el-radio-group v-model="range" size="small" @change="loadTraffic">
+        <el-radio-group v-model="range" size="small" @change="loadAll">
           <el-radio-button value="1h">1 小时</el-radio-button>
           <el-radio-button value="6h">6 小时</el-radio-button>
           <el-radio-button value="24h">24 小时</el-radio-button>
           <el-radio-button value="7d">7 天</el-radio-button>
           <el-radio-button value="30d">30 天</el-radio-button>
         </el-radio-group>
-        <el-button :icon="Refresh" circle size="small" @click="loadAll" />
+        <el-button :icon="Refresh" circle size="small" :loading="loading" :disabled="loading" @click="loadAll" />
       </div>
     </div>
+
+    <el-alert v-if="error" type="error" :closable="false" show-icon :title="error" class="page-error" />
 
     <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-label">站点</div>
-        <div class="stat-value">{{ overview?.sites.total ?? 0 }}</div>
-        <div class="stat-foot"><span class="status-dot" :class="(overview?.sites.healthy ?? 0) > 0 ? 'ok' : 'err'"></span>{{ overview?.enabled_sites ?? 0 }} 启用 · {{ overview?.sites.healthy ?? 0 }} 健康</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">应用服务</div>
-        <div class="stat-value">{{ overview?.applications.nodes_healthy ?? 0 }}<span class="muted" style="font-size: 15px"> / {{ overview?.applications.nodes_total ?? 0 }}</span></div>
-        <div class="stat-foot">{{ overview?.applications.groups ?? 0 }} 个应用服务</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">SSL 证书</div>
-        <div class="stat-value">{{ overview?.certificates.total ?? 0 }}</div>
-        <div class="stat-foot" :style="{ color: (overview?.certificates.expiring ?? 0) > 0 ? '#f59e0b' : undefined }">
-          {{ (overview?.certificates.expiring ?? 0) > 0 ? `${overview?.certificates.expiring} 张 30 天内到期` : '暂无即将到期证书' }}
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">今日请求</div>
-        <div class="stat-value">{{ formatNumber(overview?.today.requests ?? 0) }}</div>
-        <div class="stat-foot">平均 {{ overview?.today.avg_ms ?? 0 }} ms · P95 {{ overview?.today.p95_ms ?? 0 }} ms</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" title="入站=请求头+请求体；出站=响应头+响应体">今日流量</div>
-        <div class="stat-value" style="font-size: 20px">
-          <span class="muted" style="font-size: 13px">↓</span> {{ formatBytes(overview?.today.inbound_bytes ?? 0) }}
-        </div>
-        <div class="stat-foot"><span class="muted">↑</span> {{ formatBytes(overview?.today.outbound_bytes ?? 0) }} 出站</div>
-      </div>
+      <MetricCard
+        label="站点"
+        :value="formatNumber(overview?.sites.total ?? 0)"
+        :helper="`${overview?.enabled_sites ?? 0} 启用 · ${overview?.sites.healthy ?? 0} 健康`"
+      />
+      <MetricCard
+        label="应用服务"
+        :value="`${overview?.applications.nodes_healthy ?? 0} / ${overview?.applications.nodes_total ?? 0}`"
+        :helper="`${overview?.applications.groups ?? 0} 个应用服务`"
+      />
+      <MetricCard
+        label="SSL 证书"
+        :value="formatNumber(overview?.certificates.total ?? 0)"
+        :tone="(overview?.certificates.expiring ?? 0) > 0 ? 'warning' : 'default'"
+        :helper="(overview?.certificates.expiring ?? 0) > 0 ? `${overview?.certificates.expiring} 张 30 天内到期` : '暂无即将到期证书'"
+      />
+      <MetricCard
+        label="今日请求"
+        :value="formatNumber(overview?.today.requests ?? 0)"
+        :helper="`平均 ${overview?.today.avg_ms ?? 0} ms · P95 ${overview?.today.p95_ms ?? 0} ms`"
+      />
+      <MetricCard label="今日流量" :value="`↓ ${formatBytes(overview?.today.inbound_bytes ?? 0)}`" :helper="`↑ ${formatBytes(overview?.today.outbound_bytes ?? 0)} 出站`" />
     </div>
 
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-body">
-          <div class="card-title">
-            <span>请求与流量趋势</span>
-            <span class="muted tiny">{{ rangeLabel }}</span>
-          </div>
-          <Chart :option="trafficOption" height="320px" />
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-body">
-          <div class="card-title"><span>HTTP 状态码分布</span></div>
-          <Chart :option="statusOption" height="320px" />
-        </div>
-      </div>
+    <div class="dashboard-analytics">
+      <ChartCard
+        title="请求趋势"
+        :subtitle="`${rangeLabel(range)} · 共 ${formatNumber(rangeRequests)} 次请求`"
+        :loading="loading"
+        :empty="rangeEmpty"
+        empty-text="所选时间范围内暂无请求"
+      >
+        <TrendChart :points="series" metric="requests" :range="range" height="300px" />
+      </ChartCard>
+
+      <ChartCard title="HTTP 状态码分布" :subtitle="rangeLabel(range)" :loading="loading" :empty="statusEmpty" empty-text="所选时间范围内暂无请求">
+        <StatusDonut :totals="statusTotals" />
+      </ChartCard>
     </div>
 
-    <div class="card">
+    <div class="dashboard-analytics">
+      <ChartCard
+        title="流量趋势"
+        :subtitle="`${rangeLabel(range)} · 入站 + 出站`"
+        :loading="loading"
+        :empty="rangeEmpty"
+        empty-text="所选时间范围内暂无流量"
+      >
+        <TrendChart :points="series" metric="traffic" :range="range" height="300px" />
+      </ChartCard>
+
+      <ChartCard title="站点排行" :subtitle="`${rangeLabel(range)} · 按请求数排序`" :loading="loading" :empty="!ranking.length" empty-text="所选时间范围内暂无站点流量">
+        <SiteRanking :items="ranking" :limit="8" />
+      </ChartCard>
+    </div>
+
+    <div class="card dashboard-events">
       <div class="card-body">
         <div class="card-title">
           <span>最近系统事件</span>
@@ -101,91 +111,67 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { EChartsOption } from 'echarts'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import Chart from '@/components/Chart.vue'
+import MetricCard from '@/components/MetricCard.vue'
+import ChartCard from '@/components/ChartCard.vue'
+import TrendChart from '@/components/TrendChart.vue'
+import StatusDonut from '@/components/StatusDonut.vue'
+import SiteRanking from '@/components/SiteRanking.vue'
 import { api, formatBytes, formatNumber, formatTime } from '@/api/client'
 import { categoryLabel, levelLabel, levelTagType, messageLabel } from '@/utils/labels'
-import type { DashboardOverview, EngineStatus, TrafficPoint } from '@/api/types'
+import type { DashboardOverview, EngineStatus, SiteTrafficStat, Totals, TrafficPoint } from '@/api/types'
+import { rangeLabel, rangeRequests as sumRangeRequests, statusTotal, type RangeKey } from '@/utils/chartTheme'
 
 const overview = ref<DashboardOverview>()
 const engine = ref<EngineStatus>()
 const series = ref<TrafficPoint[]>([])
-const range = ref('24h')
+const statusTotals = ref<Totals>()
+const ranking = ref<SiteTrafficStat[]>([])
+const range = ref<RangeKey>('24h')
+const loading = ref(false)
+const error = ref('')
+const lastUpdated = ref(0)
 let timer: number | undefined
+let requestSeq = 0
 
-const rangeLabel = computed(
-  () => ({ '1h': '最近 1 小时', '6h': '最近 6 小时', '24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天' })[range.value],
-)
-
-const trafficOption = computed<EChartsOption>(() => {
-  const x = series.value.map((p) => new Date(p.time).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }))
-  return {
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['请求数', '入站流量', '出站流量'], bottom: 0, itemGap: 22, textStyle: { color: '#64748b' } },
-    grid: { left: 24, right: 24, top: 24, bottom: 46, containLabel: true },
-    xAxis: { type: 'category', data: x, boundaryGap: false, axisLabel: { color: '#94a3b8', hideOverlap: true } },
-    yAxis: [
-      { type: 'value', splitLine: { lineStyle: { color: '#eef2f7' } }, axisLabel: { color: '#94a3b8' } },
-      { type: 'value', splitLine: { show: false }, axisLabel: { color: '#94a3b8', formatter: (v: number) => formatBytes(v) } },
-    ],
-    series: [
-      { name: '请求数', type: 'line', smooth: true, data: series.value.map((p) => p.requests), itemStyle: { color: '#0ea5a4' }, areaStyle: { opacity: 0.08 } },
-      { name: '入站流量', type: 'line', yAxisIndex: 1, smooth: true, data: series.value.map((p) => p.inbound_bytes), itemStyle: { color: '#6366f1' } },
-      { name: '出站流量', type: 'line', yAxisIndex: 1, smooth: true, data: series.value.map((p) => p.outbound_bytes), itemStyle: { color: '#f59e0b' } },
-    ],
-  }
-})
-
-const statusOption = computed<EChartsOption>(() => {
-  const s = overview.value?.status_codes ?? {}
-  return {
-    tooltip: { trigger: 'item' },
-    legend: { bottom: 0 },
-    series: [
-      {
-        type: 'pie',
-        radius: ['48%', '72%'],
-        center: ['50%', '45%'],
-        label: { formatter: '{b}\n{d}%' },
-        data: [
-          { name: '2xx', value: s['2xx'] ?? 0, itemStyle: { color: '#10b981' } },
-          { name: '3xx', value: s['3xx'] ?? 0, itemStyle: { color: '#0ea5a4' } },
-          { name: '4xx', value: s['4xx'] ?? 0, itemStyle: { color: '#f59e0b' } },
-          { name: '5xx', value: s['5xx'] ?? 0, itemStyle: { color: '#ef4444' } },
-        ],
-      },
-    ],
-  }
-})
-
-async function loadOverview() {
-  try {
-    overview.value = await api.get<DashboardOverview>('/dashboard/overview')
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '加载仪表盘数据失败')
-  }
-  try {
-    const info = await api.get<{ engine: EngineStatus }>('/system/info')
-    engine.value = info.engine
-  } catch {
-    // Engine status is supplementary; keep the dashboard metrics usable.
-    engine.value = undefined
-  }
-}
-
-async function loadTraffic() {
-  try {
-    const data = await api.get<{ series: TrafficPoint[] }>(`/dashboard/traffic?range=${range.value}`)
-    series.value = data.series ?? []
-  } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '加载流量数据失败')
-  }
-}
+const rangeRequests = computed(() => sumRangeRequests(series.value))
+const rangeEmpty = computed(() => !loading.value && rangeRequests.value === 0)
+const statusEmpty = computed(() => !loading.value && statusTotal(statusTotals.value) === 0)
+const updatedLabel = computed(() => (lastUpdated.value ? new Date(lastUpdated.value).toLocaleTimeString('zh-CN', { hour12: false }) : '尚未更新'))
 
 async function loadAll() {
-  await Promise.all([loadOverview(), loadTraffic()])
+  const seq = ++requestSeq
+  loading.value = true
+  error.value = ''
+  const results = await Promise.allSettled([
+    api.get<DashboardOverview>('/dashboard/overview'),
+    api.get<{ engine: EngineStatus }>('/system/info'),
+    api.get<{ series: TrafficPoint[] }>(`/dashboard/traffic?range=${range.value}`),
+    api.get<{ totals: Totals }>(`/statistics/status-codes?range=${range.value}`),
+    api.get<{ items: SiteTrafficStat[] }>(`/statistics/sites?range=${range.value}`),
+  ])
+  if (seq !== requestSeq) return
+
+  const failures: string[] = []
+  if (results[0].status === 'fulfilled') overview.value = results[0].value
+  else failures.push('概览')
+  if (results[1].status === 'fulfilled') engine.value = results[1].value.engine
+  else engine.value = undefined
+  if (results[2].status === 'fulfilled') series.value = results[2].value.series ?? []
+  else failures.push('趋势')
+  if (results[3].status === 'fulfilled') statusTotals.value = results[3].value.totals
+  else failures.push('状态码')
+  if (results[4].status === 'fulfilled') ranking.value = results[4].value.items ?? []
+  else failures.push('站点排行')
+
+  if (failures.length) {
+    error.value = `${failures.join('、')}数据加载失败，已保留上一次成功数据`
+    ElMessage.error(error.value)
+  } else {
+    lastUpdated.value = Date.now()
+  }
+  loading.value = false
 }
 
 onMounted(() => {

@@ -171,7 +171,7 @@ func rangeParams(r *http.Request) (from, to time.Time, step time.Duration, err e
 	case "7d":
 		window, step = 7*24*time.Hour, time.Hour
 	case "30d":
-		window, step = 30*24*time.Hour, 6*time.Hour
+		window, step = 30*24*time.Hour, 4*time.Hour
 	default:
 		return time.Time{}, time.Time{}, 0, apperr.Invalidf("range must be 1h, 6h, 24h, 7d or 30d")
 	}

@@ -222,6 +222,20 @@ export interface Totals {
   p99_ms: number
 }
 
+export interface SiteTrafficStat {
+  site_id: number
+  site_name: string
+  domains: string[]
+  requests: number
+  inbound_bytes: number
+  outbound_bytes: number
+  avg_ms: number
+  status_2xx: number
+  status_3xx: number
+  status_4xx: number
+  status_5xx: number
+}
+
 export interface SystemLog {
   ID: number
   Level: string

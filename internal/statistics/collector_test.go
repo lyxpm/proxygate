@@ -10,6 +10,32 @@ import (
 	"github.com/proxygate/proxygate/internal/storage"
 )
 
+func TestSeriesFillsEmptyBuckets(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "series.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	c := New(store, nil)
+	now := time.Date(2026, 11, 8, 12, 7, 0, 0, time.UTC)
+	c.Record(proxy.RequestEvent{Time: now, SiteID: 1, Status: 200, Duration: 10 * time.Millisecond, RequestBytes: 1, ResponseBytes: 2})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	from := now.Truncate(15 * time.Minute)
+	to := from.Add(time.Hour)
+	series, err := c.Series(context.Background(), 0, from, to, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) != 5 {
+		t.Fatalf("series buckets=%d, want 5", len(series))
+	}
+	if series[0].Requests != 1 || series[1].Requests != 0 || series[4].Requests != 0 {
+		t.Fatalf("unexpected bucket values: %+v", series)
+	}
+}
+
 func TestCollectorFlushAndTotals(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "stats.db"), false)
 	if err != nil {

@@ -1,4 +1,4 @@
-﻿GO ?= go
+GO ?= go
 PNPM ?= pnpm
 BIN ?= bin/proxygate
 VERSION ?= 0.1.1

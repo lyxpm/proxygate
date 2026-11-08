@@ -16,13 +16,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.6.2"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.6.2 --activate
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - name: Build frontend
         working-directory: web
         run: |

@@ -18,7 +18,7 @@
         </el-menu-item>
       </el-menu>
       <div v-if="!collapsed" class="sidebar-footer">
-        v0.1.0 · ProxyGate<br />
+        v{{ version || '—' }} · ProxyGate<br />
         {{ auth.user?.username || 'admin' }}
       </div>
     </el-aside>
@@ -99,6 +99,7 @@ const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
 const engineRunning = ref(false)
+const version = ref('')
 const passwordDialog = ref(false)
 const changingPassword = ref(false)
 const passwordForm = reactive({ old_password: '', new_password: '', confirm: '' })
@@ -123,8 +124,9 @@ const initials = computed(() => (auth.user?.username || 'admin').slice(0, 1).toU
 
 async function loadStatus() {
   try {
-    const info = await api.get<{ engine: EngineStatus }>('/system/info')
+    const info = await api.get<{ version: string; engine: EngineStatus }>('/system/info')
     engineRunning.value = info.engine.running
+    version.value = info.version || ''
   } catch {
     engineRunning.value = false
   }
