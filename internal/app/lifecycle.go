@@ -117,7 +117,10 @@ func (a *App) adminHTTPHandler() http.Handler {
 			port = 18443
 		}
 		target := "https://" + net.JoinHostPort(host, strconv.FormatInt(port, 10)) + r.URL.RequestURI()
-		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+		// A permanent redirect is cached by browsers and survives disabling
+		// HTTPS. Use a temporary redirect and explicitly avoid caching.
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 	})
 }
 
@@ -129,13 +132,14 @@ func (a *App) startAdminHTTPS(ctx context.Context) {
 		a.httpsRequired.Store(false)
 		return
 	}
-	a.httpsRequired.Store(true)
 	if a.httpsServer != nil {
+		a.httpsRequired.Store(true)
 		return
 	}
 	portRaw, _, _ := a.store.GetSetting(ctx, "admin_https_port")
 	port, err := strconv.Atoi(portRaw)
 	if err != nil || port < 1024 || port > 65535 {
+		a.httpsRequired.Store(false)
 		a.log.Warn("admin HTTPS disabled: invalid port", "value", portRaw)
 		return
 	}
@@ -143,21 +147,25 @@ func (a *App) startAdminHTTPS(ctx context.Context) {
 	certRaw, _, _ := a.store.GetSetting(ctx, "admin_https_certificate_id")
 	certID, err := strconv.ParseUint(certRaw, 10, 64)
 	if err != nil || certID == 0 {
+		a.httpsRequired.Store(false)
 		a.log.Warn("admin HTTPS disabled: no certificate selected")
 		return
 	}
 	cert, err := a.certs.Get(ctx, uint(certID))
 	if err != nil {
+		a.httpsRequired.Store(false)
 		a.log.Warn("admin HTTPS disabled: certificate not found", "id", certID, "error", err)
 		return
 	}
 	pair, err := a.certs.LoadPair(cert)
 	if err != nil {
+		a.httpsRequired.Store(false)
 		a.log.Warn("admin HTTPS disabled: cannot load certificate", "id", certID, "error", err)
 		return
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
+		a.httpsRequired.Store(false)
 		a.log.Warn("admin HTTPS disabled: listen failed", "port", port, "error", err)
 		return
 	}
@@ -180,6 +188,8 @@ func (a *App) startAdminHTTPS(ctx context.Context) {
 			a.log.Warn("admin HTTPS server stopped", "error", err)
 		}
 	}()
+	// Do not gate HTTP behind HTTPS until the listener is actually ready.
+	a.httpsRequired.Store(true)
 	a.log.Info("admin HTTPS started", "address", fmt.Sprintf("https://%s", displayAddr(ln.Addr().String())), "certificate", cert.Name)
 }
 
@@ -187,6 +197,7 @@ func (a *App) startAdminHTTPS(ctx context.Context) {
 func (a *App) stopAdminHTTPS(ctx context.Context) {
 	a.httpsMu.Lock()
 	defer a.httpsMu.Unlock()
+	a.httpsRequired.Store(false)
 	if a.httpsServer == nil {
 		return
 	}
@@ -198,6 +209,14 @@ func (a *App) stopAdminHTTPS(ctx context.Context) {
 	}
 	a.httpsServer = nil
 	a.httpsLn = nil
+}
+
+// RefreshAdminHTTPS applies a changed management HTTPS setting without
+// restarting the proxy engine. The caller should invoke this after the HTTP
+// response has been written when the current page may itself be HTTPS.
+func (a *App) RefreshAdminHTTPS(ctx context.Context) {
+	a.stopAdminHTTPS(ctx)
+	a.startAdminHTTPS(ctx)
 }
 
 // Restart reapplies proxy configuration and restarts the management HTTPS

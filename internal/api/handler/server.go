@@ -30,24 +30,25 @@ import (
 
 // Deps are the services used by HTTP handlers.
 type Deps struct {
-	Config         config.Config
-	Store          *storage.Store
-	Auth           *auth.Service
-	Sites          *site.Service
-	Applications   *application.Service
-	Certs          *certificate.Manager
-	Stats          *statistics.Collector
-	Access         *applog.AccessLog
-	System         *applog.System
-	Hub            *applog.Hub
-	Engine         *proxy.Engine
-	Reload         func(context.Context) error
-	Restart        func(context.Context) error
-	RestartProcess func()
-	Rollback       func(context.Context, int) error
-	StartedAt      time.Time
-	Version        string
-	Logger         *slog.Logger
+	Config            config.Config
+	Store             *storage.Store
+	Auth              *auth.Service
+	Sites             *site.Service
+	Applications      *application.Service
+	Certs             *certificate.Manager
+	Stats             *statistics.Collector
+	Access            *applog.AccessLog
+	System            *applog.System
+	Hub               *applog.Hub
+	Engine            *proxy.Engine
+	Reload            func(context.Context) error
+	Restart           func(context.Context) error
+	RefreshAdminHTTPS func(context.Context)
+	RestartProcess    func()
+	Rollback          func(context.Context, int) error
+	StartedAt         time.Time
+	Version           string
+	Logger            *slog.Logger
 }
 
 // Server holds handler dependencies.

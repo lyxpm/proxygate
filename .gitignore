@@ -1,4 +1,4 @@
-.tools/
+﻿.tools/
 web/node_modules/
 web/dist/
 data/
@@ -19,7 +19,6 @@ coverage.out
 data-dev/
 tmp-*/
 tmp-backend/
-docs/
 web/test-results/
 web/playwright-report/
 web/.playwright/

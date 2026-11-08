@@ -166,7 +166,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	apiHandler := handler.New(handler.Deps{
 		Config: cfg, Store: store, Auth: a.auth, Sites: a.sites, Applications: a.applications,
 		Certs: a.certs, Stats: stats, Access: access, System: system, Hub: hub, Engine: engine,
-		Reload: a.Reload, Restart: a.Restart, RestartProcess: a.RestartProcess, Rollback: a.RollbackConfig, StartedAt: a.startedAt, Version: Version, Logger: logger,
+		Reload: a.Reload, Restart: a.Restart, RefreshAdminHTTPS: a.RefreshAdminHTTPS, RestartProcess: a.RestartProcess, Rollback: a.RollbackConfig, StartedAt: a.startedAt, Version: Version, Logger: logger,
 	})
 	a.handler = api.NewRouter(apiHandler)
 	return a, nil

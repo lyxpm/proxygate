@@ -151,7 +151,7 @@
           <div class="security-block-head">
             <div class="security-block-title-row">
               <span class="security-block-title">管理面 HTTPS</span>
-              <el-tooltip content="启用后需重启服务；HTTP 管理端口继续用于健康检查。证书来自证书管理模块。" placement="top">
+              <el-tooltip content="保存后自动重载管理 HTTPS；HTTP 管理端口保留健康检查。证书来自证书管理模块。" placement="top">
                 <el-icon class="hint-icon"><Warning /></el-icon>
               </el-tooltip>
             </div>
@@ -682,6 +682,7 @@ async function restartEngine() {
 
 async function saveSettings(scope: 'basic' | 'security') {
   saving.value = true
+  const wasHTTPS = window.location.protocol === 'https:'
   try {
     const basic = {
       log_retention_days: String(settings.log_retention_days),
@@ -705,6 +706,14 @@ async function saveSettings(scope: 'basic' | 'security') {
       admin_https_certificate_id: String(settings.admin_https_certificate_id),
     }
     await api.put('/system/settings', scope === 'basic' ? basic : security)
+    if (scope === 'security' && wasHTTPS && !settings.admin_https_enabled) {
+      ElMessage.success('管理 HTTPS 已关闭，正在切换到 HTTP…')
+      window.setTimeout(() => {
+        const port = window.location.port === '18443' ? '18080' : (window.location.port || '18080')
+        window.location.href = `http://${window.location.hostname}:${port}/settings`
+      }, 1200)
+      return
+    }
     ElMessage.success(scope === 'basic' ? '基础设置已保存' : '安全策略已保存')
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '保存失败')

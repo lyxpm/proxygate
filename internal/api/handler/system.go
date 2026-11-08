@@ -303,9 +303,26 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if s.Certs != nil {
 		s.Certs.ReloadRenewalSettings(r.Context())
 	}
+	adminHTTPSChanged := false
+	for _, key := range []string{"admin_https_enabled", "admin_https_port", "admin_https_certificate_id"} {
+		if _, ok := in[key]; ok {
+			adminHTTPSChanged = true
+			break
+		}
+	}
 	s.audit(r, "update_settings", "system", nil, "success", map[string]any{"keys": keysOf(in)})
 	values, _ := s.Store.AllSettings(r.Context())
 	response.OK(w, map[string]any{"values": values})
+	if adminHTTPSChanged && s.RefreshAdminHTTPS != nil {
+		// Let the response complete first: disabling HTTPS from an HTTPS page
+		// would otherwise close the listener while the request is still active.
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			s.RefreshAdminHTTPS(ctx)
+		}()
+	}
 }
 
 func boolSetting(v string) error {

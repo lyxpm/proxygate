@@ -37,8 +37,11 @@ func TestAdminHTTPHandlerHTTPSGate(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "http://admin.test:18080/api/v1/auth/login?x=1", nil)
 	req.Host = "admin.test:18080"
 	a.adminHTTPHandler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusPermanentRedirect {
+	if rec.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("redirect status=%d", rec.Code)
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("redirect cache-control=%q", rec.Header().Get("Cache-Control"))
 	}
 	if loc := rec.Header().Get("Location"); loc != "https://admin.test:18443/api/v1/auth/login?x=1" {
 		t.Fatalf("redirect location=%q", loc)

@@ -1,4 +1,4 @@
-.git
+﻿.git
 .tools
 .gitignore
 data
@@ -7,7 +7,6 @@ tmp-*
 proxygate.exe
 web/node_modules
 web/dist
-docs/screens
 *.log
 *.zip
 .pnpm-store
