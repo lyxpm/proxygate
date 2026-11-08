@@ -61,7 +61,7 @@ Go API / 业务层
 | 配置版本 | 每次成功应用生成快照，支持保留上限、回滚、单条/批量删除；备份不导出历史版本 |
 | 备份恢复 | 一致性 zip 备份，恢复后自动重启，配置版本重置为 1 |
 | 认证与权限 | 管理员/只读用户、bcrypt、Session、登录锁定、空闲超时、密码策略、会话吊销、API Token、TOTP |
-| 部署 | Docker Compose、systemd 单二进制、源码运行；支持 CentOS 7 旧内核 |
+| 部署 | Docker Compose、systemd 单二进制、源码运行 |
 
 ## 技术栈
 
@@ -129,7 +129,7 @@ Compose 端口映射：
 说明：
 
 - 默认使用 `ghcr.io/lyxpm/proxygate:latest`；可用 `PROXYGATE_IMAGE` 覆盖为指定版本或本地镜像。
-- 镜像默认以 `root` 运行，直接绑定 80/443，兼容 CentOS 7 等旧内核；这是为通用性做的取舍。
+- 镜像默认以 `root` 运行，直接绑定 80/443。
 - 无需 `.env` 和预置密码；首次启动会生成管理员密码，写入 `data/initial-admin-password.txt`。
 - 更新镜像后执行 `docker compose pull && docker compose up -d`；`docker compose down` 不会删除 `./data`。
 - 如使用私有仓库镜像，可将 `PROXYGATE_IMAGE` 设置为实际镜像地址。
@@ -142,7 +142,7 @@ docker compose logs -f proxygate
 
 ## 部署方式二：systemd 直接运行
 
-适合不使用容器、或需要直接管理主机的场景。当前 demo 使用该方式。
+适合不使用容器、或需要直接管理主机的场景。
 
 ### 1. 构建 Linux 二进制
 
@@ -225,36 +225,6 @@ PG_ADMIN_LISTEN=0.0.0.0:18080 \
 PG_DATA_DIR=./data \
 go run ./cmd/server
 ```
-
-## 版本发布（GitHub Actions）
-
-发布新版本只需推送 `v*` tag：
-
-```bash
-git tag -a v0.1.0 -m "ProxyGate v0.1.0"
-git push origin v0.1.0
-```
-
-Release workflow 会自动执行：
-
-1. 校验 tag 格式；
-2. 运行后端测试、前端构建；
-3. 构建 `linux/amd64` 和 `linux/arm64` 镜像；
-4. 推送到 `ghcr.io/lyxpm/proxygate`；
-5. 创建 GitHub Release。
-
-镜像 tag：
-
-```text
-ghcr.io/lyxpm/proxygate:0.1.0
-ghcr.io/lyxpm/proxygate:0.1
-ghcr.io/lyxpm/proxygate:0
-ghcr.io/lyxpm/proxygate:latest
-```
-
-预发布 tag（例如 `v0.2.0-rc.1`）只生成完整版本 tag，不更新 `latest`。
-
-> 首次发布后，请在 GitHub 仓库的 **Packages → proxygate → Package settings** 中将 GHCR 包可见性设为 Public，否则匿名用户无法拉取镜像。
 
 ## 首次启动与登录
 
@@ -344,7 +314,6 @@ Prometheus 指标默认暴露在管理面 `/api/v1/system/metrics`。
 - 默认禁止上游节点使用链路本地/元数据地址；私网地址可通过策略关闭。
 - 管理 API 变更请求校验 `Origin`；仅信任 `PG_TRUSTED_PROXIES` 的转发头。
 - 审计日志不记录密码、Token、私钥。
-- 容器使用 root 运行以绑定 80/443；如安全要求更高，可改用非 root + 高端口 + 反向代理，但 CentOS 7 旧内核可能不支持非 root 绑定低端口。
 
 ## 测试
 
