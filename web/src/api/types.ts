@@ -206,6 +206,8 @@ export interface TrafficPoint {
   status_4xx: number
   status_5xx: number
   avg_ms: number
+  p95_ms?: number
+  p99_ms?: number
 }
 
 export interface Totals {
@@ -230,6 +232,8 @@ export interface SiteTrafficStat {
   inbound_bytes: number
   outbound_bytes: number
   avg_ms: number
+  p95_ms?: number
+  p99_ms?: number
   status_2xx: number
   status_3xx: number
   status_4xx: number

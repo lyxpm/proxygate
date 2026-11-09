@@ -4,14 +4,20 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import type { ECharts, EChartsOption } from 'echarts'
 
-const props = withDefaults(defineProps<{ option: echarts.EChartsOption; height?: string }>(), {
+echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer])
+
+const props = withDefaults(defineProps<{ option: EChartsOption; height?: string }>(), {
   height: '300px',
 })
 
 const el = ref<HTMLDivElement>()
-let chart: echarts.ECharts | null = null
+let chart: ECharts | null = null
 let observer: ResizeObserver | null = null
 let lastOption = ''
 

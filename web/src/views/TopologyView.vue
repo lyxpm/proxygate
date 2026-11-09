@@ -457,7 +457,7 @@ onMounted(async () => {
   await load()
   timer = window.setInterval(() => {
     if (document.visibilityState === 'visible') load(true)
-  }, 5000)
+  }, 10000)
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onBeforeUnmount(() => {

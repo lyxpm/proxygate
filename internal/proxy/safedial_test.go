@@ -14,7 +14,7 @@ func TestBlockedDialIP(t *testing.T) {
 		{"fe80::1", true},
 		{"ff02::1", true},
 		{"0.0.0.0", true},
-		{"10.0.0.5", false},
+		{"10.1.2.3", false},
 		{"192.168.1.5", false},
 		{"127.0.0.1", false},
 		{"8.8.8.8", false},

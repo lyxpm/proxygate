@@ -201,6 +201,7 @@ type TrafficStat struct {
 	Status5xx       int64     `gorm:"column:status_5xx;not null;default:0"`
 	ResponseTimeSum int64     `gorm:"not null;default:0"` // milliseconds
 	ResponseTimeMax int64     `gorm:"not null;default:0"` // milliseconds
+	LatencyHist     string    `gorm:"column:latency_hist;not null;default:''"`
 }
 
 // AuditLog records administrative changes. Secrets are never written here.

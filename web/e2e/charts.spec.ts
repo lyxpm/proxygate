@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 const username = process.env.PG_E2E_USER || 'admin'
-const password = process.env.PG_E2E_PASSWORD || 'test123456'
+const password = process.env.PG_E2E_PASSWORD || ''
 
 async function login(page: Page) {
   await page.goto('/login')

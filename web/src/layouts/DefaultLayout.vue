@@ -91,15 +91,16 @@ import {
   User,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { useSystemStore } from '@/stores/system'
 import { api } from '@/api/client'
-import type { EngineStatus } from '@/api/types'
 
 const auth = useAuthStore()
+const system = useSystemStore()
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
-const engineRunning = ref(false)
-const version = ref('')
+const engineRunning = computed(() => system.info?.engine.running ?? false)
+const version = computed(() => system.info?.version ?? '')
 const passwordDialog = ref(false)
 const changingPassword = ref(false)
 const passwordForm = reactive({ old_password: '', new_password: '', confirm: '' })
@@ -123,13 +124,7 @@ const activeMenu = computed(() => {
 const initials = computed(() => (auth.user?.username || 'admin').slice(0, 1).toUpperCase())
 
 async function loadStatus() {
-  try {
-    const info = await api.get<{ version: string; engine: EngineStatus }>('/system/info')
-    engineRunning.value = info.engine.running
-    version.value = info.version || ''
-  } catch {
-    engineRunning.value = false
-  }
+  await system.fetchInfo(true)
 }
 
 function onUnauthorized() {

@@ -78,9 +78,17 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   return (body?.data ?? null) as T
 }
 
+const inflightGets = new Map<string, Promise<unknown>>()
+
 export const api = {
   get<T>(path: string): Promise<T> {
-    return request<T>(path)
+    const existing = inflightGets.get(path)
+    if (existing) return existing as Promise<T>
+    const pending = request<T>(path).finally(() => {
+      inflightGets.delete(path)
+    })
+    inflightGets.set(path, pending)
+    return pending
   },
   post<T>(path: string, body?: unknown): Promise<T> {
     return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })

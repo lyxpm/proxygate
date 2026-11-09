@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('site dialog edit save', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('用户名').fill('admin')
-  await page.getByLabel('密码').fill('test123456')
+  await page.getByLabel('密码').fill(process.env.PG_E2E_PASSWORD || '')
   await page.getByRole('button', { name: '登录' }).click()
   await page.waitForURL(/\/dashboard/)
   await page.getByRole('menuitem', { name: '站点管理' }).click()

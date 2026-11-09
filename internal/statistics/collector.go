@@ -22,6 +22,7 @@ type bucket struct {
 	s2, s3, s4, s5 int64
 	sum            int64
 	max            int64
+	latency        storage.LatencyHistogram
 }
 
 // Collector records live traffic and flushes it periodically.
@@ -39,6 +40,11 @@ type Collector struct {
 	lifetimeMu sync.Mutex
 	lifetime   []storage.SiteTraffic
 	lifetimeAt time.Time
+
+	pctMu sync.Mutex
+	pctAt time.Time
+	pct95 int64
+	pct99 int64
 
 	done chan struct{}
 	once sync.Once
@@ -72,6 +78,7 @@ func (c *Collector) Record(ev proxy.RequestEvent) {
 		b.in += ev.RequestBytes
 		b.out += ev.ResponseBytes
 		b.sum += ms
+		b.latency.Add(ms)
 		if ms > b.max {
 			b.max = ms
 		}
@@ -140,6 +147,7 @@ func (c *Collector) Flush(ctx context.Context) error {
 				RequestCount: b.requests, InboundBytes: b.in, OutboundBytes: b.out,
 				Status2xx: b.s2, Status3xx: b.s3, Status4xx: b.s4, Status5xx: b.s5,
 				ResponseSum: b.sum, ResponseMax: b.max,
+				Latency: b.latency,
 			})
 		}
 	}
@@ -175,6 +183,7 @@ func (c *Collector) mergePending(pending map[uint]map[int64]*bucket) {
 			dst.s4 += src.s4
 			dst.s5 += src.s5
 			dst.sum += src.sum
+			dst.latency.AddHistogram(src.latency)
 			if src.max > dst.max {
 				dst.max = src.max
 			}
@@ -184,6 +193,15 @@ func (c *Collector) mergePending(pending map[uint]map[int64]*bucket) {
 
 // Percentiles returns p95 and p99 from the recent request ring.
 func (c *Collector) Percentiles() (int64, int64) {
+	now := time.Now()
+	c.pctMu.Lock()
+	if !c.pctAt.IsZero() && now.Sub(c.pctAt) < time.Second {
+		p95, p99 := c.pct95, c.pct99
+		c.pctMu.Unlock()
+		return p95, p99
+	}
+	c.pctMu.Unlock()
+
 	c.mu.Lock()
 	n := c.recentN
 	vals := make([]int64, 0, n)
@@ -201,7 +219,12 @@ func (c *Collector) Percentiles() (int64, int64) {
 		idx := int(float64(len(vals)-1) * q)
 		return vals[idx]
 	}
-	return p(0.95), p(0.99)
+	p95, p99 := p(0.95), p(0.99)
+	c.pctMu.Lock()
+	c.pctAt = now
+	c.pct95, c.pct99 = p95, p99
+	c.pctMu.Unlock()
+	return p95, p99
 }
 
 // Purge removes minute buckets older than the retention window.

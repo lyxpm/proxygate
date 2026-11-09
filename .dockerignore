@@ -1,4 +1,4 @@
-﻿.git
+.git
 .tools
 .gitignore
 data
@@ -9,6 +9,10 @@ web/node_modules
 web/dist
 *.log
 *.zip
+*.pem
+*.key
+*.p12
+*.pfx
 .pnpm-store
 backups
 dist

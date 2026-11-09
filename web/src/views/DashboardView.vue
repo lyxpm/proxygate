@@ -120,11 +120,13 @@ import StatusDonut from '@/components/StatusDonut.vue'
 import SiteRanking from '@/components/SiteRanking.vue'
 import { api, formatBytes, formatNumber, formatTime } from '@/api/client'
 import { categoryLabel, levelLabel, levelTagType, messageLabel } from '@/utils/labels'
-import type { DashboardOverview, EngineStatus, SiteTrafficStat, Totals, TrafficPoint } from '@/api/types'
+import type { DashboardOverview, SiteTrafficStat, Totals, TrafficPoint } from '@/api/types'
 import { rangeLabel, rangeRequests as sumRangeRequests, statusTotal, type RangeKey } from '@/utils/chartTheme'
+import { useSystemStore } from '@/stores/system'
 
+const system = useSystemStore()
 const overview = ref<DashboardOverview>()
-const engine = ref<EngineStatus>()
+const engine = computed(() => system.info?.engine)
 const series = ref<TrafficPoint[]>([])
 const statusTotals = ref<Totals>()
 const ranking = ref<SiteTrafficStat[]>([])
@@ -146,7 +148,6 @@ async function loadAll() {
   error.value = ''
   const results = await Promise.allSettled([
     api.get<DashboardOverview>('/dashboard/overview'),
-    api.get<{ engine: EngineStatus }>('/system/info'),
     api.get<{ series: TrafficPoint[] }>(`/dashboard/traffic?range=${range.value}`),
     api.get<{ totals: Totals }>(`/statistics/status-codes?range=${range.value}`),
     api.get<{ items: SiteTrafficStat[] }>(`/statistics/sites?range=${range.value}`),
@@ -156,13 +157,11 @@ async function loadAll() {
   const failures: string[] = []
   if (results[0].status === 'fulfilled') overview.value = results[0].value
   else failures.push('概览')
-  if (results[1].status === 'fulfilled') engine.value = results[1].value.engine
-  else engine.value = undefined
-  if (results[2].status === 'fulfilled') series.value = results[2].value.series ?? []
+  if (results[1].status === 'fulfilled') series.value = results[1].value.series ?? []
   else failures.push('趋势')
-  if (results[3].status === 'fulfilled') statusTotals.value = results[3].value.totals
+  if (results[2].status === 'fulfilled') statusTotals.value = results[2].value.totals
   else failures.push('状态码')
-  if (results[4].status === 'fulfilled') ranking.value = results[4].value.items ?? []
+  if (results[3].status === 'fulfilled') ranking.value = results[3].value.items ?? []
   else failures.push('站点排行')
 
   if (failures.length) {
@@ -176,6 +175,7 @@ async function loadAll() {
 
 onMounted(() => {
   loadAll()
+  void system.fetchInfo()
   timer = window.setInterval(() => {
     if (document.visibilityState === 'visible') loadAll()
   }, 20_000)

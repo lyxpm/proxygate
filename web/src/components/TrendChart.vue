@@ -42,6 +42,12 @@ function tooltipFormatter(params: unknown): string {
   ]
   if (props.metric === 'latency') {
     rows.push(`<div class="chart-tooltip-row"><span class="chart-tooltip-label">平均响应</span><b>${formatNumber(p.avg_ms)} ms</b></div>`)
+    if (p.p95_ms !== undefined) {
+      rows.push(`<div class="chart-tooltip-row"><span class="chart-tooltip-label">P95</span><b>${formatNumber(p.p95_ms)} ms</b></div>`)
+    }
+    if (p.p99_ms !== undefined) {
+      rows.push(`<div class="chart-tooltip-row"><span class="chart-tooltip-label">P99</span><b>${formatNumber(p.p99_ms)} ms</b></div>`)
+    }
   }
   return `<div class="chart-tooltip">${rows.join('')}</div>`
 }
@@ -78,7 +84,7 @@ const series = computed(() => {
     ]
   }
   if (props.metric === 'latency') {
-    return [
+    const series: any[] = [
       {
         name: '平均响应',
         type: 'line' as const,
@@ -90,6 +96,31 @@ const series = computed(() => {
         emphasis: { focus: 'series' as const },
       },
     ]
+    if (props.points.some((p) => p.p95_ms !== undefined)) {
+      series.push({
+        name: 'P95',
+        type: 'line' as const,
+        smooth: true,
+        showSymbol: false,
+        data: props.points.map((p) => p.p95_ms ?? 0),
+        lineStyle: { width: 2, color: CHART_COLORS.p95, type: 'dashed' as const },
+        itemStyle: { color: CHART_COLORS.p95 },
+        emphasis: { focus: 'series' as const },
+      })
+    }
+    if (props.points.some((p) => p.p99_ms !== undefined)) {
+      series.push({
+        name: 'P99',
+        type: 'line' as const,
+        smooth: true,
+        showSymbol: false,
+        data: props.points.map((p) => p.p99_ms ?? 0),
+        lineStyle: { width: 2, color: CHART_COLORS.p99, type: 'dashed' as const },
+        itemStyle: { color: CHART_COLORS.p99 },
+        emphasis: { focus: 'series' as const },
+      })
+    }
+    return series
   }
   return [
     {
@@ -120,7 +151,11 @@ const series = computed(() => {
 const option = computed<EChartsOption>(() => {
   const isTraffic = props.metric === 'traffic'
   const isLatency = props.metric === 'latency'
-  const legendData = isTraffic ? ['入站流量', '出站流量'] : isLatency ? ['平均响应'] : []
+  const legendData = isTraffic
+    ? ['入站流量', '出站流量']
+    : isLatency
+      ? ['平均响应', ...(props.points.some((p) => p.p95_ms !== undefined) ? ['P95'] : []), ...(props.points.some((p) => p.p99_ms !== undefined) ? ['P99'] : [])]
+      : []
   return {
     animationDuration: 250,
     animationDurationUpdate: 250,

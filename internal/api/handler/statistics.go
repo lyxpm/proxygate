@@ -60,6 +60,8 @@ type siteTrafficItem struct {
 	Inbound   int64    `json:"inbound_bytes"`
 	Outbound  int64    `json:"outbound_bytes"`
 	AvgMS     int64    `json:"avg_ms"`
+	P95MS     int64    `json:"p95_ms"`
+	P99MS     int64    `json:"p99_ms"`
 	Status2xx int64    `json:"status_2xx"`
 	Status3xx int64    `json:"status_3xx"`
 	Status4xx int64    `json:"status_4xx"`
@@ -95,6 +97,8 @@ func (s *Server) StatisticsSites(w http.ResponseWriter, r *http.Request) {
 		item.Inbound = t.Inbound
 		item.Outbound = t.Outbound
 		item.AvgMS = t.AvgMS
+		item.P95MS = t.P95MS
+		item.P99MS = t.P99MS
 		item.Status2xx = t.Status2xx
 		item.Status3xx = t.Status3xx
 		item.Status4xx = t.Status4xx

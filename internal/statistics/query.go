@@ -33,6 +33,9 @@ type Point struct {
 	Status4xx int64     `json:"status_4xx"`
 	Status5xx int64     `json:"status_5xx"`
 	AvgMS     int64     `json:"avg_ms"`
+	P95MS     int64     `json:"p95_ms"`
+	P99MS     int64     `json:"p99_ms"`
+	hist      storage.LatencyHistogram
 }
 
 // Totals aggregates traffic over [from, to).
@@ -49,7 +52,9 @@ func (c *Collector) Totals(ctx context.Context, from, to time.Time) (Totals, err
 	if row.RequestCount > 0 {
 		t.AvgMS = row.ResponseTimeSum / row.RequestCount
 	}
-	t.P95MS, t.P99MS = c.Percentiles()
+	hist := storage.DecodeLatencyHistogram(row.LatencyHist)
+	t.P95MS = hist.Percentile(row.RequestCount, 0.95)
+	t.P99MS = hist.Percentile(row.RequestCount, 0.99)
 	return t, nil
 }
 
@@ -80,6 +85,7 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 		if r.RequestCount > 0 {
 			p.AvgMS += r.ResponseTimeSum
 		}
+		p.hist.AddHistogram(storage.DecodeLatencyHistogram(r.LatencyHist))
 	}
 	// Keep the chart's time axis continuous even when there are no requests
 	// in a bucket. Without this, a sparse day collapses to a single point and
@@ -97,6 +103,8 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 		} else if p.Requests > 0 {
 			// ResponseTimeSum was accumulated in AvgMS temporarily.
 			p.AvgMS /= p.Requests
+			p.P95MS = p.hist.Percentile(p.Requests, 0.95)
+			p.P99MS = p.hist.Percentile(p.Requests, 0.99)
 		}
 		out = append(out, *p)
 	}
@@ -114,6 +122,8 @@ type SiteTraffic struct {
 	Status4xx int64 `json:"status_4xx"`
 	Status5xx int64 `json:"status_5xx"`
 	AvgMS     int64 `json:"avg_ms"`
+	P95MS     int64 `json:"p95_ms"`
+	P99MS     int64 `json:"p99_ms"`
 }
 
 // LifetimeBySite returns all-time per-site totals with a short cache. The
@@ -153,6 +163,8 @@ func (c *Collector) BySite(ctx context.Context, from, to time.Time) ([]SiteTraff
 		if r.RequestCount > 0 {
 			t.AvgMS = r.ResponseSum / r.RequestCount
 		}
+		t.P95MS = r.Latency.Percentile(r.RequestCount, 0.95)
+		t.P99MS = r.Latency.Percentile(r.RequestCount, 0.99)
 		out = append(out, t)
 	}
 	return out, nil

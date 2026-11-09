@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --pm-bg: #f4f6fb;
   --pm-sidebar: #0f172a;
   --pm-sidebar-soft: #1e293b;
@@ -306,7 +306,7 @@ a {
 
 .chart-card-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
   min-height: 30px;
@@ -387,33 +387,82 @@ a {
 }
 
 .metric-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   padding: 3px;
   background: #f1f5f9;
-  border-radius: 8px;
+  border: 1px solid #e8edf5;
+  border-radius: 10px;
 }
 
-.metric-switch .el-radio-button__inner {
-  padding: 6px 12px;
-  color: #64748b;
-  background: transparent;
+.metric-switch-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
   border: 0;
-  border-radius: 6px;
-  box-shadow: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
 }
 
-.metric-switch .el-radio-button.is-active .el-radio-button__inner,
-.metric-switch .el-radio-button__original-radio:checked + .el-radio-button__inner {
+.metric-switch-button:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.metric-switch-button.active {
   color: #0f172a;
   background: #fff;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08), inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.metric-switch-button:focus-visible {
+  outline: 2px solid #99f6e4;
+  outline-offset: 1px;
+}
+
+.metric-switch-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #94a3b8;
+  opacity: 0.65;
+}
+
+.metric-switch-button.is-requests .metric-switch-dot {
+  background: #0ea5a4;
+}
+
+.metric-switch-button.is-traffic .metric-switch-dot {
+  background: #6366f1;
+}
+
+.metric-switch-button.is-latency .metric-switch-dot {
+  background: #f59e0b;
+}
+
+.metric-switch-button.active .metric-switch-dot {
+  opacity: 1;
 }
 
 .metric-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
-  margin: 4px 0 2px;
+  gap: 6px;
+  margin: 8px 0 4px;
   color: #64748b;
   font-size: 12px;
 }
@@ -422,6 +471,10 @@ a {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
+  padding: 3px 8px;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 6px;
 }
 
 .metric-summary-label {
@@ -487,17 +540,17 @@ a {
     display: none;
   }
 
+  .chart-card-actions {
+    width: 100%;
+  }
+
   .metric-switch {
     width: 100%;
   }
 
-  .metric-switch .el-radio-button {
+  .metric-switch-button {
     flex: 1;
-  }
-
-  .metric-switch .el-radio-button__inner {
-    width: 100%;
-    padding: 6px 8px;
+    padding: 0 8px;
   }
 }
 
@@ -1848,5 +1901,6 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
 
 

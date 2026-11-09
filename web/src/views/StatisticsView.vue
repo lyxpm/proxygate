@@ -26,7 +26,7 @@
       <MetricCard
         label="响应时间"
         :value="`${totals?.avg_ms ?? 0} ms`"
-        :helper="(totals?.max_ms ?? 0) > 0 ? `最大 ${totals?.max_ms} ms` : '所选范围平均响应'"
+        :helper="`P95 ${totals?.p95_ms ?? 0} ms · P99 ${totals?.p99_ms ?? 0} ms`"
       />
       <MetricCard
         label="5xx 错误"
@@ -46,11 +46,21 @@
       @retry="load"
     >
       <template #actions>
-        <el-radio-group v-model="metric" size="small" class="metric-switch">
-          <el-radio-button value="requests">请求数</el-radio-button>
-          <el-radio-button value="traffic">流量</el-radio-button>
-          <el-radio-button value="latency">响应时间</el-radio-button>
-        </el-radio-group>
+        <div class="metric-switch" role="tablist" aria-label="趋势指标">
+          <button
+            v-for="option in METRIC_OPTIONS"
+            :key="option.value"
+            type="button"
+            role="tab"
+            class="metric-switch-button"
+            :class="[`is-${option.value}`, { active: metric === option.value }]"
+            :aria-selected="metric === option.value"
+            @click="metric = option.value"
+          >
+            <span class="metric-switch-dot" aria-hidden="true"></span>
+            {{ option.label }}
+          </button>
+        </div>
       </template>
 
       <div class="metric-summary">
@@ -147,6 +157,12 @@ interface TopItem {
   count: number
 }
 
+const METRIC_OPTIONS: { value: MetricKey; label: string }[] = [
+  { value: 'requests', label: '请求数' },
+  { value: 'traffic', label: '流量' },
+  { value: 'latency', label: '响应时间' },
+]
+
 const route = useRoute()
 const range = ref<RangeKey>('24h')
 const siteId = ref(typeof route.query.site_id === 'string' ? route.query.site_id : '')
@@ -183,7 +199,8 @@ const summary = computed(() => {
   }
   return [
     { label: '平均', value: `${totals.value?.avg_ms ?? 0} ms` },
-    ...(totals.value?.max_ms ? [{ label: '最大', value: `${totals.value.max_ms} ms` }] : []),
+    { label: 'P95', value: `${totals.value?.p95_ms ?? 0} ms` },
+    { label: 'P99', value: `${totals.value?.p99_ms ?? 0} ms` },
   ]
 })
 
@@ -231,6 +248,8 @@ async function load() {
             status_4xx: row.status_4xx,
             status_5xx: row.status_5xx,
             avg_ms: row.avg_ms,
+            p95_ms: row.p95_ms ?? 0,
+            p99_ms: row.p99_ms ?? 0,
           }
         : emptyTotals()
       const [traffic, detail] = await Promise.all([
