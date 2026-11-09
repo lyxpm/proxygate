@@ -36,6 +36,46 @@ func TestSeriesFillsEmptyBuckets(t *testing.T) {
 	}
 }
 
+func TestCollectorIgnoresUpgradedLatency(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "upgraded.db"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	c := New(store, nil)
+	now := time.Now()
+	c.Record(proxy.RequestEvent{Time: now, SiteID: 1, Status: 200, Duration: 10 * time.Millisecond, RequestBytes: 1, ResponseBytes: 2})
+	c.Record(proxy.RequestEvent{Time: now, SiteID: 1, Status: 200, Duration: 3 * time.Minute, Upgraded: true, RequestBytes: 1, ResponseBytes: 2})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	totals, err := c.Totals(context.Background(), now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totals.Requests != 2 {
+		t.Fatalf("requests=%d, want 2", totals.Requests)
+	}
+	if totals.AvgMS != 10 {
+		t.Fatalf("avg=%d, want 10 (WebSocket excluded)", totals.AvgMS)
+	}
+	if totals.P95MS >= 1000 {
+		t.Fatalf("p95=%d includes upgraded connection", totals.P95MS)
+	}
+	series, err := c.Series(context.Background(), 0, now.Add(-time.Minute), now.Add(time.Minute), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series) == 0 {
+		t.Fatal("expected at least one series point")
+	}
+	for _, p := range series {
+		if p.Requests > 0 && p.AvgMS >= 1000 {
+			t.Fatalf("unexpected latency point: %+v", p)
+		}
+	}
+}
+
 func TestCollectorFlushAndTotals(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "stats.db"), false)
 	if err != nil {

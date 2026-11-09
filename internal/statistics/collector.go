@@ -22,6 +22,7 @@ type bucket struct {
 	s2, s3, s4, s5 int64
 	sum            int64
 	max            int64
+	latencyReqs    int64
 	latency        storage.LatencyHistogram
 }
 
@@ -77,10 +78,13 @@ func (c *Collector) Record(ev proxy.RequestEvent) {
 		b.requests++
 		b.in += ev.RequestBytes
 		b.out += ev.ResponseBytes
-		b.sum += ms
-		b.latency.Add(ms)
-		if ms > b.max {
-			b.max = ms
+		if !ev.Upgraded {
+			b.sum += ms
+			b.latencyReqs++
+			b.latency.Add(ms)
+			if ms > b.max {
+				b.max = ms
+			}
 		}
 		switch {
 		case ev.Status >= 500:
@@ -93,10 +97,12 @@ func (c *Collector) Record(ev proxy.RequestEvent) {
 			b.s2++
 		}
 	}
-	c.recent[c.recentAt] = ms
-	c.recentAt = (c.recentAt + 1) % recentCap
-	if c.recentN < recentCap {
-		c.recentN++
+	if !ev.Upgraded {
+		c.recent[c.recentAt] = ms
+		c.recentAt = (c.recentAt + 1) % recentCap
+		if c.recentN < recentCap {
+			c.recentN++
+		}
 	}
 	c.mu.Unlock()
 }
@@ -147,7 +153,8 @@ func (c *Collector) Flush(ctx context.Context) error {
 				RequestCount: b.requests, InboundBytes: b.in, OutboundBytes: b.out,
 				Status2xx: b.s2, Status3xx: b.s3, Status4xx: b.s4, Status5xx: b.s5,
 				ResponseSum: b.sum, ResponseMax: b.max,
-				Latency: b.latency,
+				LatencyRequests: b.latencyReqs,
+				Latency:         b.latency,
 			})
 		}
 	}
@@ -183,6 +190,7 @@ func (c *Collector) mergePending(pending map[uint]map[int64]*bucket) {
 			dst.s4 += src.s4
 			dst.s5 += src.s5
 			dst.sum += src.sum
+			dst.latencyReqs += src.latencyReqs
 			dst.latency.AddHistogram(src.latency)
 			if src.max > dst.max {
 				dst.max = src.max

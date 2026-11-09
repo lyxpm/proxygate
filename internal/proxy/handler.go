@@ -211,6 +211,7 @@ func (h *siteHandler) record(r *http.Request, start time.Time, rec *responseReco
 		Protocol:      r.Proto,
 		Status:        status,
 		Duration:      time.Since(start),
+		Upgraded:      isUpgrade(r),
 		Application:   application,
 		RequestBytes:  reqBytes,
 		ResponseBytes: rec.bytes.Load() + responseHeaderBytes(rec.Header()),

@@ -49,12 +49,12 @@ func (c *Collector) Totals(ctx context.Context, from, to time.Time) (Totals, err
 		Status2xx: row.Status2xx, Status3xx: row.Status3xx, Status4xx: row.Status4xx, Status5xx: row.Status5xx,
 		MaxMS: row.ResponseTimeMax,
 	}
-	if row.RequestCount > 0 {
-		t.AvgMS = row.ResponseTimeSum / row.RequestCount
+	if row.LatencyRequests > 0 {
+		t.AvgMS = row.ResponseTimeSum / row.LatencyRequests
 	}
 	hist := storage.DecodeLatencyHistogram(row.LatencyHist)
-	t.P95MS = hist.Percentile(row.RequestCount, 0.95)
-	t.P99MS = hist.Percentile(row.RequestCount, 0.99)
+	t.P95MS = hist.Percentile(row.LatencyRequests, 0.95)
+	t.P99MS = hist.Percentile(row.LatencyRequests, 0.99)
 	return t, nil
 }
 
@@ -82,10 +82,10 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 		p.Status3xx += r.Status3xx
 		p.Status4xx += r.Status4xx
 		p.Status5xx += r.Status5xx
-		if r.RequestCount > 0 {
+		if r.LatencyRequests > 0 {
 			p.AvgMS += r.ResponseTimeSum
+			p.hist.AddHistogram(storage.DecodeLatencyHistogram(r.LatencyHist))
 		}
-		p.hist.AddHistogram(storage.DecodeLatencyHistogram(r.LatencyHist))
 	}
 	// Keep the chart's time axis continuous even when there are no requests
 	// in a bucket. Without this, a sparse day collapses to a single point and
@@ -102,9 +102,12 @@ func (c *Collector) Series(ctx context.Context, siteID uint, from, to time.Time,
 			p = &Point{Time: key}
 		} else if p.Requests > 0 {
 			// ResponseTimeSum was accumulated in AvgMS temporarily.
-			p.AvgMS /= p.Requests
-			p.P95MS = p.hist.Percentile(p.Requests, 0.95)
-			p.P99MS = p.hist.Percentile(p.Requests, 0.99)
+			latencyCount := p.hist.Count()
+			if latencyCount > 0 {
+				p.AvgMS /= latencyCount
+				p.P95MS = p.hist.Percentile(latencyCount, 0.95)
+				p.P99MS = p.hist.Percentile(latencyCount, 0.99)
+			}
 		}
 		out = append(out, *p)
 	}
@@ -160,11 +163,11 @@ func (c *Collector) BySite(ctx context.Context, from, to time.Time) ([]SiteTraff
 			SiteID: r.SiteID, Requests: r.RequestCount, Inbound: r.InboundBytes, Outbound: r.OutboundBytes,
 			Status2xx: r.Status2xx, Status3xx: r.Status3xx, Status4xx: r.Status4xx, Status5xx: r.Status5xx,
 		}
-		if r.RequestCount > 0 {
-			t.AvgMS = r.ResponseSum / r.RequestCount
+		if r.LatencyRequests > 0 {
+			t.AvgMS = r.ResponseSum / r.LatencyRequests
 		}
-		t.P95MS = r.Latency.Percentile(r.RequestCount, 0.95)
-		t.P99MS = r.Latency.Percentile(r.RequestCount, 0.99)
+		t.P95MS = r.Latency.Percentile(r.LatencyRequests, 0.95)
+		t.P99MS = r.Latency.Percentile(r.LatencyRequests, 0.99)
 		out = append(out, t)
 	}
 	return out, nil

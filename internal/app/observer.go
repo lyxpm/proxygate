@@ -22,7 +22,8 @@ func (o *observer) RecordRequest(ev proxy.RequestEvent) {
 	entry := applog.Entry{
 		Time: ev.Time, SiteID: ev.SiteID, SiteName: ev.SiteName, Domain: ev.Domain,
 		ClientIP: ev.ClientIP, Method: ev.Method, Path: ev.Path, Protocol: ev.Protocol,
-		Status: ev.Status, DurationMS: ev.Duration.Milliseconds(), Application: ev.Application,
+		Status: ev.Status, DurationMS: ev.Duration.Milliseconds(), Upgraded: ev.Upgraded,
+		Application:  ev.Application,
 		RequestBytes: ev.RequestBytes, ResponseBytes: ev.ResponseBytes,
 		UserAgent: ev.UserAgent, RequestID: ev.RequestID,
 	}

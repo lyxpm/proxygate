@@ -3,6 +3,8 @@
 .gitignore
 data
 data-dev
+**/data
+**/backups
 tmp-*
 proxygate.exe
 web/node_modules

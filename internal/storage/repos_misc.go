@@ -80,18 +80,19 @@ func (s *Store) PruneConfigVersions(ctx context.Context, keep int) (int64, error
 
 // TrafficDelta is one minute-bucket increment.
 type TrafficDelta struct {
-	SiteID        uint
-	Bucket        time.Time
-	RequestCount  int64
-	InboundBytes  int64
-	OutboundBytes int64
-	Status2xx     int64
-	Status3xx     int64
-	Status4xx     int64
-	Status5xx     int64
-	ResponseSum   int64
-	ResponseMax   int64
-	Latency       LatencyHistogram
+	SiteID          uint
+	Bucket          time.Time
+	RequestCount    int64
+	InboundBytes    int64
+	OutboundBytes   int64
+	Status2xx       int64
+	Status3xx       int64
+	Status4xx       int64
+	Status5xx       int64
+	ResponseSum     int64
+	ResponseMax     int64
+	LatencyRequests int64
+	Latency         LatencyHistogram
 }
 
 // UpsertTraffic increments the minute bucket for a site.
@@ -123,6 +124,24 @@ func upsertTraffic(ctx context.Context, tx *gorm.DB, d TrafficDelta) error {
 		d.SiteID, "minute", d.Bucket.UTC(),
 	).First(&row).Error
 	if err == nil {
+		if row.LatencyRequests == 0 && d.LatencyRequests > 0 {
+			// Legacy rows have no per-request split. Once the first non-upgrade
+			// sample arrives, discard the old mixed latency aggregate instead
+			// of carrying WebSocket connection lifetimes into HTTP latency.
+			return tx.WithContext(ctx).Model(&TrafficStat{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"request_count":     gorm.Expr("request_count + ?", d.RequestCount),
+				"inbound_bytes":     gorm.Expr("inbound_bytes + ?", d.InboundBytes),
+				"outbound_bytes":    gorm.Expr("outbound_bytes + ?", d.OutboundBytes),
+				"status_2xx":        gorm.Expr("status_2xx + ?", d.Status2xx),
+				"status_3xx":        gorm.Expr("status_3xx + ?", d.Status3xx),
+				"status_4xx":        gorm.Expr("status_4xx + ?", d.Status4xx),
+				"status_5xx":        gorm.Expr("status_5xx + ?", d.Status5xx),
+				"response_time_sum": d.ResponseSum,
+				"response_time_max": d.ResponseMax,
+				"latency_requests":  d.LatencyRequests,
+				"latency_hist":      d.Latency.Encode(),
+			}).Error
+		}
 		hist := DecodeLatencyHistogram(row.LatencyHist)
 		hist.AddHistogram(d.Latency)
 		return tx.WithContext(ctx).Model(&TrafficStat{}).Where("id = ?", row.ID).Updates(map[string]any{
@@ -135,6 +154,7 @@ func upsertTraffic(ctx context.Context, tx *gorm.DB, d TrafficDelta) error {
 			"status_5xx":        gorm.Expr("status_5xx + ?", d.Status5xx),
 			"response_time_sum": gorm.Expr("response_time_sum + ?", d.ResponseSum),
 			"response_time_max": gorm.Expr("MAX(response_time_max, ?)", d.ResponseMax),
+			"latency_requests":  gorm.Expr("latency_requests + ?", d.LatencyRequests),
 			"latency_hist":      hist.Encode(),
 		}).Error
 	}
@@ -147,11 +167,16 @@ func upsertTraffic(ctx context.Context, tx *gorm.DB, d TrafficDelta) error {
 }
 
 func trafficStatRow(d TrafficDelta) TrafficStat {
+	latencyRequests := d.LatencyRequests
+	if latencyRequests == 0 && d.Latency.Count() > 0 {
+		latencyRequests = d.Latency.Count()
+	}
 	return TrafficStat{
 		SiteID: d.SiteID, IntervalType: "minute", BucketTime: d.Bucket.UTC(),
 		RequestCount: d.RequestCount, InboundBytes: d.InboundBytes, OutboundBytes: d.OutboundBytes,
 		Status2xx: d.Status2xx, Status3xx: d.Status3xx, Status4xx: d.Status4xx, Status5xx: d.Status5xx,
 		ResponseTimeSum: d.ResponseSum, ResponseTimeMax: d.ResponseMax,
+		LatencyRequests: latencyRequests,
 	}
 }
 
@@ -182,11 +207,14 @@ func (s *Store) TrafficTotals(ctx context.Context, from, to time.Time) (TrafficS
 		out.Status3xx += r.Status3xx
 		out.Status4xx += r.Status4xx
 		out.Status5xx += r.Status5xx
-		out.ResponseTimeSum += r.ResponseTimeSum
-		if r.ResponseTimeMax > out.ResponseTimeMax {
-			out.ResponseTimeMax = r.ResponseTimeMax
+		if r.LatencyRequests > 0 {
+			out.LatencyRequests += r.LatencyRequests
+			out.ResponseTimeSum += r.ResponseTimeSum
+			if r.ResponseTimeMax > out.ResponseTimeMax {
+				out.ResponseTimeMax = r.ResponseTimeMax
+			}
+			hist.AddHistogram(DecodeLatencyHistogram(r.LatencyHist))
 		}
-		hist.AddHistogram(DecodeLatencyHistogram(r.LatencyHist))
 	}
 	out.LatencyHist = hist.Encode()
 	return out, nil
@@ -194,16 +222,17 @@ func (s *Store) TrafficTotals(ctx context.Context, from, to time.Time) (TrafficS
 
 // SiteTraffic is a per-site aggregate.
 type SiteTraffic struct {
-	SiteID        uint
-	RequestCount  int64
-	InboundBytes  int64
-	OutboundBytes int64
-	Status2xx     int64
-	Status3xx     int64
-	Status4xx     int64
-	Status5xx     int64
-	ResponseSum   int64
-	Latency       LatencyHistogram
+	SiteID          uint
+	RequestCount    int64
+	InboundBytes    int64
+	OutboundBytes   int64
+	Status2xx       int64
+	Status3xx       int64
+	Status4xx       int64
+	Status5xx       int64
+	ResponseSum     int64
+	LatencyRequests int64
+	Latency         LatencyHistogram
 }
 
 // TrafficBySite groups traffic per site over a range.
@@ -228,8 +257,11 @@ func (s *Store) TrafficBySite(ctx context.Context, from, to time.Time) ([]SiteTr
 		t.Status3xx += r.Status3xx
 		t.Status4xx += r.Status4xx
 		t.Status5xx += r.Status5xx
-		t.ResponseSum += r.ResponseTimeSum
-		t.Latency.AddHistogram(DecodeLatencyHistogram(r.LatencyHist))
+		if r.LatencyRequests > 0 {
+			t.LatencyRequests += r.LatencyRequests
+			t.ResponseSum += r.ResponseTimeSum
+			t.Latency.AddHistogram(DecodeLatencyHistogram(r.LatencyHist))
+		}
 	}
 	out := make([]SiteTraffic, 0, len(order))
 	for _, id := range order {

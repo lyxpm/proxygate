@@ -29,6 +29,7 @@ type Entry struct {
 	Protocol      string    `json:"protocol"`
 	Status        int       `json:"status"`
 	DurationMS    int64     `json:"duration_ms"`
+	Upgraded      bool      `json:"upgraded,omitempty"`
 	Application   string    `json:"application"`
 	RequestBytes  int64     `json:"request_bytes"`
 	ResponseBytes int64     `json:"response_bytes"`

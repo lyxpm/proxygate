@@ -1,7 +1,7 @@
 GO ?= go
 PNPM ?= pnpm
 BIN ?= bin/proxygate
-VERSION ?= 0.1.2
+VERSION ?= 0.1.3
 
 .PHONY: all web build test vet fmt run docker clean
 

@@ -114,6 +114,7 @@ type RequestEvent struct {
 	Protocol      string
 	Status        int
 	Duration      time.Duration
+	Upgraded      bool
 	Application   string
 	RequestBytes  int64
 	ResponseBytes int64

@@ -115,7 +115,7 @@ curl http://127.0.0.1:18080/api/v1/system/health
 如需本地构建：
 
 ```bash
-docker build --build-arg VERSION=0.1.2 -t proxygate:latest .
+docker build --build-arg VERSION=0.1.3 -t proxygate:latest .
 PROXYGATE_IMAGE=proxygate:latest docker compose up -d
 ```
 
