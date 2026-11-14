@@ -5,21 +5,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/proxygate/proxygate/internal/api/response"
+	"github.com/proxygate/proxygate/internal/auth"
 	"github.com/proxygate/proxygate/internal/site"
 	"github.com/proxygate/proxygate/internal/storage"
 )
 
+func siteCode(r *http.Request) string {
+	return strings.TrimSpace(chi.URLParam(r, "code"))
+}
+
 type siteView struct {
 	ID              uint         `json:"id"`
+	Code            string       `json:"code"`
 	Name            string       `json:"name"`
 	Enabled         bool         `json:"enabled"`
 	ListenPort      int          `json:"listen_port"`
 	Domains         []string     `json:"domains"`
 	Protocol        string       `json:"protocol"`
 	ApplicationID   uint         `json:"application_id"`
+	ApplicationCode string       `json:"application_code"`
 	ApplicationName string       `json:"application_name"`
 	CertificateID   *uint        `json:"certificate_id"`
+	CertificateCode string       `json:"certificate_code"`
 	CertificateName string       `json:"certificate_name"`
 	CertExpiresAt   *time.Time   `json:"certificate_expires_at"`
 	RedirectHTTPS   bool         `json:"redirect_https"`
@@ -31,13 +40,33 @@ type siteView struct {
 	UpdatedAt       time.Time    `json:"updated_at"`
 }
 
-func toSiteView(s storage.Site) siteView {
+func maskedHeaders(in []site.Header) []site.Header {
+	out := make([]site.Header, len(in))
+	for i, h := range in {
+		out[i] = h
+		if strings.TrimSpace(h.Value) != "" {
+			out[i].Value = "<redacted>"
+		}
+	}
+	return out
+}
+
+func revealSiteSecrets(r *http.Request) bool {
+	u := userFrom(r)
+	return u != nil && auth.RoleOf(u) == "admin"
+}
+
+func toSiteView(s storage.Site, revealSecrets bool) siteView {
 	opts, err := site.DecodeOptions(s.ExtraConfig)
 	if err != nil {
 		opts = site.DefaultOptions()
 	}
+	if !revealSecrets {
+		opts.RequestHeaders = maskedHeaders(opts.RequestHeaders)
+		opts.ResponseHeaders = maskedHeaders(opts.ResponseHeaders)
+	}
 	v := siteView{
-		ID: s.ID, Name: s.Name, Enabled: s.Enabled, ListenPort: s.ListenPort,
+		ID: s.ID, Code: s.Code, Name: s.Name, Enabled: s.Enabled, ListenPort: s.ListenPort,
 		Domains: s.Domains, Protocol: s.Protocol, ApplicationID: s.ApplicationID,
 		CertificateID: s.CertificateID, RedirectHTTPS: s.RedirectHTTPS,
 		ProxyTimeout: s.ProxyTimeout, MaxBodySize: s.MaxBodySize, Remark: s.Remark,
@@ -45,9 +74,11 @@ func toSiteView(s storage.Site) siteView {
 	}
 	if s.Application != nil {
 		v.ApplicationName = s.Application.Name
+		v.ApplicationCode = s.Application.Code
 	}
 	if s.Certificate != nil {
 		v.CertificateName = s.Certificate.Name
+		v.CertificateCode = s.Certificate.Code
 		v.CertExpiresAt = s.Certificate.ExpiresAt
 	}
 	return v
@@ -79,7 +110,7 @@ func (s *Server) ListSites(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		filtered = append(filtered, toSiteView(row))
+		filtered = append(filtered, toSiteView(row, revealSiteSecrets(r)))
 	}
 	page, pageSize := response.PageQuery(r)
 	total := int64(len(filtered))
@@ -107,28 +138,23 @@ func (s *Server) CreateSite(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "create_site", "site", row.ID, "success", map[string]any{"name": row.Name})
-	response.Created(w, toSiteView(*row))
+	s.audit(r, "create_site", "site", row.Code, "success", map[string]any{"name": row.Name})
+	response.Created(w, toSiteView(*row, true))
 }
 
 // GetSite returns one site.
 func (s *Server) GetSite(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	row, err := s.Sites.Get(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	response.OK(w, toSiteView(*row))
+	response.OK(w, toSiteView(*row, revealSiteSecrets(r)))
 }
 
 // UpdateSite saves a site.
 func (s *Server) UpdateSite(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	current, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -138,40 +164,40 @@ func (s *Server) UpdateSite(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	row, err := s.Sites.Update(r.Context(), id, in)
+	row, err := s.Sites.Update(r.Context(), current.ID, in)
 	if err != nil {
-		s.audit(r, "update_site", "site", id, "failure", nil)
+		s.audit(r, "update_site", "site", current.Code, "failure", nil)
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "update_site", "site", id, "success", map[string]any{"name": row.Name})
-	response.OK(w, toSiteView(*row))
+	s.audit(r, "update_site", "site", current.Code, "success", map[string]any{"name": row.Name})
+	response.OK(w, toSiteView(*row, revealSiteSecrets(r)))
 }
 
 // DeleteSite removes a site.
 func (s *Server) DeleteSite(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.Sites.Delete(r.Context(), id); err != nil {
-		s.audit(r, "delete_site", "site", id, "failure", nil)
+	if err := s.Sites.Delete(r.Context(), row.ID); err != nil {
+		s.audit(r, "delete_site", "site", row.Code, "failure", nil)
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "delete_site", "site", id, "success", nil)
+	s.audit(r, "delete_site", "site", row.Code, "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // SetSiteEnabled toggles a site.
 func (s *Server) SetSiteEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	id, err := parseID(r, "id")
+	current, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	row, err := s.Sites.SetEnabled(r.Context(), id, enabled)
+	row, err := s.Sites.SetEnabled(r.Context(), current.ID, enabled)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -180,8 +206,8 @@ func (s *Server) SetSiteEnabled(w http.ResponseWriter, r *http.Request, enabled 
 	if enabled {
 		action = "enable_site"
 	}
-	s.audit(r, action, "site", id, "success", nil)
-	response.OK(w, toSiteView(*row))
+	s.audit(r, action, "site", current.Code, "success", nil)
+	response.OK(w, toSiteView(*row, revealSiteSecrets(r)))
 }
 
 // EnableSite handles POST /sites/:id/enable.
@@ -192,16 +218,12 @@ func (s *Server) DisableSite(w http.ResponseWriter, r *http.Request) { s.SetSite
 
 // SiteStatistics returns totals and a time series for one site.
 func (s *Server) SiteStatistics(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	row, err := s.Sites.Get(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
+	id := row.ID
 	from, to, step, err := rangeParams(r)
 	if err != nil {
 		s.fail(w, r, err)
@@ -226,7 +248,7 @@ func (s *Server) SiteStatistics(w http.ResponseWriter, r *http.Request) {
 	}
 	topIPs, topPaths := s.Access.Top(id, from, to, 10)
 	response.OK(w, map[string]any{
-		"site": toSiteView(*row), "totals": st, "series": series,
+		"site": toSiteView(*row, revealSiteSecrets(r)), "totals": st, "series": series,
 		"top_ips": topIPs, "top_paths": topPaths,
 		"range": map[string]any{"from": from, "to": to},
 	})
@@ -245,16 +267,17 @@ type responseSiteTotals struct {
 
 // ExportSite returns a portable site configuration.
 func (s *Server) ExportSite(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	data, err := s.Sites.Export(r.Context(), id)
+	data, err := s.Sites.Export(r.Context(), row.ID)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	s.audit(r, "export_site", "site", row.Code, "success", nil)
 	response.OK(w, data)
 }
 
@@ -271,22 +294,18 @@ func (s *Server) ImportSite(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "import_site", "site", row.ID, "success", map[string]any{"name": row.Name})
-	response.Created(w, toSiteView(*row))
+	s.audit(r, "import_site", "site", row.Code, "success", map[string]any{"name": row.Name})
+	response.Created(w, toSiteView(*row, true))
 }
 
 // SiteLogs returns recent access log entries for one site.
 func (s *Server) SiteLogs(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Sites.GetByCode(r.Context(), siteCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if _, err := s.Sites.Get(r.Context(), id); err != nil {
-		s.fail(w, r, err)
-		return
-	}
 	page, pageSize := response.PageQuery(r)
-	items, total := s.Access.Query(accessFilter(r, id, page, pageSize))
+	items, total := s.Access.Query(accessFilter(r, row.ID, page, pageSize))
 	response.OK(w, response.Page{Items: items, Total: total, Page: page, PageSize: pageSize})
 }

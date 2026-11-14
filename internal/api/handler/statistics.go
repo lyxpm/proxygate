@@ -36,7 +36,14 @@ func (s *Server) StatisticsTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var siteID uint
-	if v := r.URL.Query().Get("site_id"); v != "" {
+	if code := r.URL.Query().Get("site_code"); code != "" {
+		row, err := s.Sites.GetByCode(r.Context(), code)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		siteID = row.ID
+	} else if v := r.URL.Query().Get("site_id"); v != "" {
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
 			s.fail(w, r, err)
@@ -54,6 +61,7 @@ func (s *Server) StatisticsTraffic(w http.ResponseWriter, r *http.Request) {
 
 type siteTrafficItem struct {
 	SiteID    uint     `json:"site_id"`
+	SiteCode  string   `json:"site_code"`
 	SiteName  string   `json:"site_name"`
 	Domains   []string `json:"domains"`
 	Requests  int64    `json:"requests"`
@@ -87,7 +95,7 @@ func (s *Server) StatisticsSites(w http.ResponseWriter, r *http.Request) {
 	}
 	names := make(map[uint]siteTrafficItem, len(sites))
 	for _, site := range sites {
-		names[site.ID] = siteTrafficItem{SiteID: site.ID, SiteName: site.Name, Domains: site.Domains}
+		names[site.ID] = siteTrafficItem{SiteID: site.ID, SiteCode: site.Code, SiteName: site.Name, Domains: site.Domains}
 	}
 	items := make([]siteTrafficItem, 0, len(rows))
 	for _, t := range rows {

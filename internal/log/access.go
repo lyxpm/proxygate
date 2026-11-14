@@ -167,6 +167,7 @@ func (a *AccessLog) seedRecent(days int) {
 			if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
 				continue
 			}
+			e.Path = RedactRequestURI(e.Path)
 			add(e)
 		}
 		_ = file.Close()
@@ -189,6 +190,7 @@ func (a *AccessLog) Record(e Entry) {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
+	e.Path = RedactRequestURI(e.Path)
 	a.mu.Lock()
 	a.ring[a.next] = e
 	a.next = (a.next + 1) % a.cap
@@ -252,6 +254,7 @@ func (a *AccessLog) Query(f Filter) ([]Entry, int64) {
 		if e.Time.IsZero() {
 			break
 		}
+		e.Path = RedactRequestURI(e.Path)
 		if !matchesFilter(e, f) {
 			continue
 		}

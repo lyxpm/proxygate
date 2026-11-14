@@ -67,14 +67,22 @@ func (s *Store) CountAdmins(ctx context.Context) (int64, error) {
 	return n, err
 }
 
-// DeleteUser removes an account and all of its sessions.
+// DeleteUser removes an account and all of its sessions and API tokens.
 func (s *Store) DeleteUser(ctx context.Context, id uint) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ?", id).Delete(&Session{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", id).Delete(&APIToken{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&User{}, id).Error
 	})
+}
+
+// DeleteUserAPITokens revokes every API token owned by a user.
+func (s *Store) DeleteUserAPITokens(ctx context.Context, userID uint) error {
+	return s.DB.WithContext(ctx).Where("user_id = ?", userID).Delete(&APIToken{}).Error
 }
 
 // CreateSession stores a hashed session token.

@@ -29,6 +29,19 @@ func (s *Store) GetSite(ctx context.Context, id uint) (*Site, error) {
 	return &site, nil
 }
 
+// GetSiteByCode loads one site by its immutable business code.
+func (s *Store) GetSiteByCode(ctx context.Context, code string) (*Site, error) {
+	var site Site
+	err := s.DB.WithContext(ctx).
+		Preload("Application").Preload("Application.Nodes").
+		Preload("Certificate").
+		Where("code = ?", code).First(&site).Error
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	return &site, nil
+}
+
 // CreateSite inserts a site.
 func (s *Store) CreateSite(ctx context.Context, site *Site) error {
 	return s.DB.WithContext(ctx).Omit("Application", "Certificate").Create(site).Error
@@ -66,6 +79,18 @@ func (s *Store) GetApplication(ctx context.Context, id uint) (*Application, erro
 	err := s.DB.WithContext(ctx).
 		Preload("Nodes", func(db *gorm.DB) *gorm.DB { return db.Order("priority, id") }).
 		First(&up, id).Error
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	return &up, nil
+}
+
+// GetApplicationByCode loads one application by its immutable business code.
+func (s *Store) GetApplicationByCode(ctx context.Context, code string) (*Application, error) {
+	var up Application
+	err := s.DB.WithContext(ctx).
+		Preload("Nodes", func(db *gorm.DB) *gorm.DB { return db.Order("priority, id") }).
+		Where("code = ?", code).First(&up).Error
 	if err != nil {
 		return nil, wrapErr(err)
 	}
@@ -175,6 +200,15 @@ func (s *Store) ListCertificates(ctx context.Context) ([]Certificate, error) {
 func (s *Store) GetCertificate(ctx context.Context, id uint) (*Certificate, error) {
 	var c Certificate
 	if err := s.DB.WithContext(ctx).First(&c, id).Error; err != nil {
+		return nil, wrapErr(err)
+	}
+	return &c, nil
+}
+
+// GetCertificateByCode loads one certificate by its immutable business code.
+func (s *Store) GetCertificateByCode(ctx context.Context, code string) (*Certificate, error) {
+	var c Certificate
+	if err := s.DB.WithContext(ctx).Where("code = ?", code).First(&c).Error; err != nil {
 		return nil, wrapErr(err)
 	}
 	return &c, nil

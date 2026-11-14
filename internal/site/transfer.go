@@ -17,8 +17,10 @@ type Export struct {
 	Domains         []string  `json:"domains"`
 	Protocol        string    `json:"protocol"`
 	ApplicationID   uint      `json:"application_id"`
+	ApplicationCode string    `json:"application_code"`
 	ApplicationName string    `json:"application_name"`
 	CertificateID   *uint     `json:"certificate_id"`
+	CertificateCode string    `json:"certificate_code"`
 	CertificateName string    `json:"certificate_name"`
 	RedirectHTTPS   bool      `json:"redirect_https"`
 	ProxyTimeout    int       `json:"proxy_timeout"`
@@ -37,8 +39,10 @@ type ImportInput struct {
 	Domains         []string `json:"domains"`
 	Protocol        string   `json:"protocol"`
 	ApplicationID   *uint    `json:"application_id"`
+	ApplicationCode string   `json:"application_code"`
 	ApplicationName string   `json:"application_name"`
 	CertificateID   *uint    `json:"certificate_id"`
+	CertificateCode string   `json:"certificate_code"`
 	CertificateName string   `json:"certificate_name"`
 	RedirectHTTPS   bool     `json:"redirect_https"`
 	ProxyTimeout    int      `json:"proxy_timeout"`
@@ -65,9 +69,11 @@ func (s *Service) Export(ctx context.Context, id uint) (*Export, error) {
 	}
 	if row.Application != nil {
 		out.ApplicationName = row.Application.Name
+		out.ApplicationCode = row.Application.Code
 	}
 	if row.Certificate != nil {
 		out.CertificateName = row.Certificate.Name
+		out.CertificateCode = row.Certificate.Code
 	}
 	return out, nil
 }
@@ -92,6 +98,13 @@ func (s *Service) Import(ctx context.Context, in ImportInput) (*storage.Site, er
 }
 
 func (s *Service) resolveApplication(ctx context.Context, in ImportInput) (uint, error) {
+	if in.ApplicationCode != "" {
+		up, err := s.store.GetApplicationByCode(ctx, in.ApplicationCode)
+		if err != nil {
+			return 0, apperr.InvalidField("application_code", "application not found")
+		}
+		return up.ID, nil
+	}
 	if in.ApplicationName != "" {
 		rows, err := s.store.ListApplications(ctx)
 		if err != nil {
@@ -110,6 +123,14 @@ func (s *Service) resolveApplication(ctx context.Context, in ImportInput) (uint,
 }
 
 func (s *Service) resolveCertificate(ctx context.Context, in ImportInput) (*uint, error) {
+	if in.CertificateCode != "" {
+		c, err := s.store.GetCertificateByCode(ctx, in.CertificateCode)
+		if err != nil {
+			return nil, apperr.InvalidField("certificate_code", "certificate not found")
+		}
+		id := c.ID
+		return &id, nil
+	}
 	if in.CertificateName != "" {
 		rows, err := s.store.ListCertificates(ctx)
 		if err != nil {

@@ -162,6 +162,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	a.certs.SetHTTPClient(acmeClient)
 	a.applications = application.NewService(store, a.Reload, logger)
+	a.applications.SetAllowLoopback(cfg.AllowLoopbackUpstream)
 	a.sites = site.NewService(store, a.Reload)
 	apiHandler := handler.New(handler.Deps{
 		Config: cfg, Store: store, Auth: a.auth, Sites: a.sites, Applications: a.applications,
@@ -233,6 +234,9 @@ func (a *App) Reload(ctx context.Context) error {
 				KeepAlive: boolValue(opts.KeepAlive, true), UseUpstreamHost: opts.UseUpstreamHost,
 				ForwardClientIP: boolValue(opts.ForwardClientIP, true),
 				BufferSize:      opts.BufferSize, IPMode: opts.IPMode, IPRules: opts.IPList,
+				ConnectionLimitEnabled: opts.ConnectionLimitEnabled, ConnectionLimit: opts.ConnectionLimit,
+				RateLimitEnabled: opts.RateLimitEnabled, RateLimitPerSecond: opts.RateLimitPerSecond,
+				RateLimitBurst: opts.RateLimitBurst,
 			},
 		}
 		for _, h := range opts.RequestHeaders {
@@ -330,7 +334,7 @@ func (a *App) saveConfigVersion(ctx context.Context, sites []storage.Site, ups [
 
 func ensureSecurityDefaults(ctx context.Context, store *storage.Store) {
 	defaults := map[string]string{
-		"password_policy_enabled":       "0",
+		"password_policy_enabled":       "1",
 		"password_min_length":           "12",
 		"password_require_upper":        "1",
 		"password_require_lower":        "1",

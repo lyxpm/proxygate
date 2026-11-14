@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/proxygate/proxygate/internal/config"
+	"github.com/proxygate/proxygate/internal/system"
 )
 
 type csrfTransport struct {
@@ -52,6 +53,7 @@ func TestAppEndToEnd(t *testing.T) {
 	t.Setenv("PG_DATA_DIR", t.TempDir())
 	t.Setenv("PG_ADMIN_LISTEN", "127.0.0.1:0")
 	t.Setenv("PG_ADMIN_PASSWORD", "admin12345")
+	t.Setenv("PG_ALLOW_LOOPBACK_UPSTREAM", "1")
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +108,8 @@ func TestAppEndToEnd(t *testing.T) {
 	}
 	var upResp struct {
 		Data struct {
-			ID uint `json:"id"`
+			ID   uint   `json:"id"`
+			Code string `json:"code"`
 		} `json:"data"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&upResp)
@@ -115,7 +118,7 @@ func TestAppEndToEnd(t *testing.T) {
 	port := freePort(t)
 	siteBody := map[string]any{
 		"name": "e2e", "listen_port": port, "domains": []string{"e2e.test"}, "protocol": "http",
-		"application_id": upResp.Data.ID, "proxy_timeout": 10,
+		"application_code": upResp.Data.Code, "proxy_timeout": 10,
 	}
 	resp = post("/sites", siteBody)
 	if resp.StatusCode != 201 {
@@ -195,6 +198,7 @@ func TestAppEndToEnd(t *testing.T) {
 		Data struct {
 			Items []struct {
 				ID     uint   `json:"id"`
+				Code   string `json:"code"`
 				Remark string `json:"remark"`
 			} `json:"items"`
 		} `json:"data"`
@@ -203,13 +207,13 @@ func TestAppEndToEnd(t *testing.T) {
 	if len(siteList.Data.Items) != 1 {
 		t.Fatalf("expected one site, got %d", len(siteList.Data.Items))
 	}
-	siteID := siteList.Data.Items[0].ID
+	siteCode := siteList.Data.Items[0].Code
 	putBody := map[string]any{
 		"name": "e2e-renamed", "listen_port": port, "domains": []string{"e2e.test"}, "protocol": "http",
-		"application_id": upResp.Data.ID, "proxy_timeout": 10, "remark": "changed",
+		"application_code": upResp.Data.Code, "proxy_timeout": 10, "remark": "changed",
 	}
 	rawPut, _ := json.Marshal(putBody)
-	putReq, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/api/v1/sites/%d", admin.URL, siteID), strings.NewReader(string(rawPut)))
+	putReq, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/api/v1/sites/%s", admin.URL, siteCode), strings.NewReader(string(rawPut)))
 	putReq.Header.Set("Content-Type", "application/json")
 	putResp, err := client.Do(putReq)
 	if err != nil {
@@ -339,8 +343,18 @@ func TestAppEndToEnd(t *testing.T) {
 	}
 	zipBytes, err := io.ReadAll(backupResp.Body)
 	backupResp.Body.Close()
-	if err != nil || backupResp.StatusCode != 200 || len(zipBytes) < 4 || string(zipBytes[:2]) != "PK" {
+	if err != nil || backupResp.StatusCode != 200 || len(zipBytes) < 4 || !system.IsEncryptedBackup(zipBytes) {
 		t.Fatalf("backup failed: status=%d len=%d err=%v", backupResp.StatusCode, len(zipBytes), err)
+	}
+	encryptedBytes := append([]byte(nil), zipBytes...)
+	plainBackup, err := system.DecryptBackup(bytes.NewReader(zipBytes), "admin12345")
+	if err != nil {
+		t.Fatalf("decrypt backup: %v", err)
+	}
+	zipBytes, err = io.ReadAll(plainBackup)
+	_ = plainBackup.Close()
+	if err != nil {
+		t.Fatalf("read decrypted backup: %v", err)
 	}
 	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
@@ -358,7 +372,7 @@ func TestAppEndToEnd(t *testing.T) {
 	if !hasDB {
 		t.Fatal("backup missing database")
 	}
-	restoreReq, _ := http.NewRequest(http.MethodPost, admin.URL+"/api/v1/system/restore", bytes.NewReader(zipBytes))
+	restoreReq, _ := http.NewRequest(http.MethodPost, admin.URL+"/api/v1/system/restore", bytes.NewReader(encryptedBytes))
 	restoreReq.Header.Set("Content-Type", "application/zip")
 	restoreReq.Header.Set("X-Admin-Password", "admin12345")
 	restoreResp, err := client.Do(restoreReq)

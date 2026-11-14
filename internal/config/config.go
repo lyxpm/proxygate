@@ -19,33 +19,35 @@ import (
 
 // Config is the immutable process configuration.
 type Config struct {
-	DataDir         string
-	AdminListen     string
-	SessionTTL      time.Duration
-	LogLevel        string
-	MasterKey       []byte
-	TrustedProxies  []string
-	AdminAllowCIDRs []string
-	Dev             bool
-	AdminPassword   string
-	PublicURL       string
-	ACMEExtraCAFile string
-	ShutdownTimeout time.Duration
+	DataDir               string
+	AdminListen           string
+	SessionTTL            time.Duration
+	LogLevel              string
+	MasterKey             []byte
+	TrustedProxies        []string
+	AdminAllowCIDRs       []string
+	Dev                   bool
+	AdminPassword         string
+	PublicURL             string
+	ACMEExtraCAFile       string
+	AllowLoopbackUpstream bool
+	ShutdownTimeout       time.Duration
 }
 
 // Load reads configuration from the environment, creating the data directory
 // layout and a master key on first start.
 func Load() (Config, error) {
 	c := Config{
-		DataDir:         env("PG_DATA_DIR", "./data"),
-		AdminListen:     env("PG_ADMIN_LISTEN", "127.0.0.1:8080"),
-		LogLevel:        env("PG_LOG_LEVEL", "info"),
-		SessionTTL:      24 * time.Hour,
-		Dev:             envBool("PG_DEV", false),
-		AdminPassword:   os.Getenv("PG_ADMIN_PASSWORD"),
-		PublicURL:       strings.TrimRight(os.Getenv("PG_PUBLIC_URL"), "/"),
-		ACMEExtraCAFile: os.Getenv("PG_ACME_CA_FILE"),
-		ShutdownTimeout: 15 * time.Second,
+		DataDir:               env("PG_DATA_DIR", "./data"),
+		AdminListen:           env("PG_ADMIN_LISTEN", "127.0.0.1:8080"),
+		LogLevel:              env("PG_LOG_LEVEL", "info"),
+		SessionTTL:            24 * time.Hour,
+		Dev:                   envBool("PG_DEV", false),
+		AdminPassword:         os.Getenv("PG_ADMIN_PASSWORD"),
+		PublicURL:             strings.TrimRight(os.Getenv("PG_PUBLIC_URL"), "/"),
+		ACMEExtraCAFile:       os.Getenv("PG_ACME_CA_FILE"),
+		AllowLoopbackUpstream: envBool("PG_ALLOW_LOOPBACK_UPSTREAM", false),
+		ShutdownTimeout:       15 * time.Second,
 	}
 	if v := os.Getenv("PG_SESSION_TTL"); v != "" {
 		d, err := time.ParseDuration(v)

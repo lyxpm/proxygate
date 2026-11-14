@@ -17,18 +17,23 @@ type Header struct {
 
 // SiteOptions covers per-site proxy behaviour.
 type SiteOptions struct {
-	StripPrefix       string   `json:"stripPrefix"`
-	AddPrefix         string   `json:"addPrefix"`
-	RequestHeaders    []Header `json:"requestHeaders"`
-	ResponseHeaders   []Header `json:"responseHeaders"`
-	UpstreamSNI       string   `json:"upstreamSni"`
-	UpstreamTLSVerify bool     `json:"upstreamTlsVerify"`
-	KeepAlive         bool     `json:"keepAlive"`
-	UseUpstreamHost   bool     `json:"useUpstreamHost"`
-	ForwardClientIP   bool     `json:"forwardClientIp"`
-	BufferSize        int      `json:"bufferSize"`
-	IPMode            string   `json:"ipMode"`
-	IPRules           []string `json:"ipRules"`
+	StripPrefix            string   `json:"stripPrefix"`
+	AddPrefix              string   `json:"addPrefix"`
+	RequestHeaders         []Header `json:"requestHeaders"`
+	ResponseHeaders        []Header `json:"responseHeaders"`
+	UpstreamSNI            string   `json:"upstreamSni"`
+	UpstreamTLSVerify      bool     `json:"upstreamTlsVerify"`
+	KeepAlive              bool     `json:"keepAlive"`
+	UseUpstreamHost        bool     `json:"useUpstreamHost"`
+	ForwardClientIP        bool     `json:"forwardClientIp"`
+	BufferSize             int      `json:"bufferSize"`
+	IPMode                 string   `json:"ipMode"`
+	IPRules                []string `json:"ipRules"`
+	ConnectionLimitEnabled bool     `json:"connectionLimitEnabled"`
+	ConnectionLimit        int      `json:"connectionLimit"`
+	RateLimitEnabled       bool     `json:"rateLimitEnabled"`
+	RateLimitPerSecond     int      `json:"rateLimitPerSecond"`
+	RateLimitBurst         int      `json:"rateLimitBurst"`
 }
 
 // HealthConfig configures active and passive application health checks.

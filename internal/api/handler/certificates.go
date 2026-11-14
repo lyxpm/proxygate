@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/proxygate/proxygate/internal/api/response"
 	"github.com/proxygate/proxygate/internal/apperr"
 	"github.com/proxygate/proxygate/internal/certificate"
@@ -13,8 +14,13 @@ import (
 	"github.com/proxygate/proxygate/internal/storage"
 )
 
+func certificateCode(r *http.Request) string {
+	return strings.TrimSpace(chi.URLParam(r, "code"))
+}
+
 type certView struct {
 	ID              uint       `json:"id"`
+	Code            string     `json:"code"`
 	Name            string     `json:"name"`
 	Domains         []string   `json:"domains"`
 	Issuer          string     `json:"issuer"`
@@ -34,7 +40,7 @@ type certView struct {
 
 func toCertView(c storage.Certificate) certView {
 	v := certView{
-		ID: c.ID, Name: c.Name, Domains: c.Domains, Issuer: c.Issuer,
+		ID: c.ID, Code: c.Code, Name: c.Name, Domains: c.Domains, Issuer: c.Issuer,
 		CertificateType: c.CertificateType, ChallengeType: c.ChallengeType,
 		Status: c.Status, AutoRenew: c.AutoRenew, ExpiresAt: c.ExpiresAt,
 		LastRenewAt: c.LastRenewAt, NextRenewAt: c.NextRenewAt,
@@ -101,7 +107,7 @@ func (s *Server) CreateACMECertificate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "issue_certificate", "certificate", cert.ID, "success", map[string]any{"domains": cert.Domains, "challenge": cert.ChallengeType})
+	s.audit(r, "issue_certificate", "certificate", cert.Code, "success", map[string]any{"domains": cert.Domains, "challenge": cert.ChallengeType})
 	go func(id uint) {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 		defer cancel()
@@ -125,18 +131,13 @@ func (s *Server) UploadCertificate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "upload_certificate", "certificate", cert.ID, "success", map[string]any{"domains": cert.Domains})
+	s.audit(r, "upload_certificate", "certificate", cert.Code, "success", map[string]any{"domains": cert.Domains})
 	response.Created(w, toCertView(*cert))
 }
 
 // GetCertificate returns one certificate.
 func (s *Server) GetCertificate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	cert, err := s.Certs.Get(r.Context(), id)
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -146,27 +147,22 @@ func (s *Server) GetCertificate(w http.ResponseWriter, r *http.Request) {
 
 // DeleteCertificate removes a certificate.
 func (s *Server) DeleteCertificate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.Certs.Delete(r.Context(), id); err != nil {
+	if err := s.Certs.Delete(r.Context(), cert.ID); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "delete_certificate", "certificate", id, "success", nil)
+	s.audit(r, "delete_certificate", "certificate", cert.Code, "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // RenewCertificate triggers an asynchronous renewal.
 func (s *Server) RenewCertificate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	cert, err := s.Certs.Get(r.Context(), id)
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -175,25 +171,25 @@ func (s *Server) RenewCertificate(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, apperr.Invalidf("only ACME certificates can be renewed"))
 		return
 	}
-	s.audit(r, "renew_certificate", "certificate", id, "success", nil)
+	s.audit(r, "renew_certificate", "certificate", cert.Code, "success", nil)
 	go func(cid uint) {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 		defer cancel()
 		if err := s.Certs.RenewNow(ctx, cid); err != nil {
 			s.Logger.Warn("certificate renewal failed", "certificate", cid, "error", err)
 		}
-	}(id)
+	}(cert.ID)
 	response.JSON(w, http.StatusAccepted, 0, "accepted", toCertView(*cert))
 }
 
 // CertificateLogs returns renewal log lines.
 func (s *Server) CertificateLogs(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	logs, err := s.Certs.Logs(r.Context(), id, 200)
+	logs, err := s.Certs.Logs(r.Context(), cert.ID, 200)
 	if err != nil {
 		s.fail(w, r, err)
 		return

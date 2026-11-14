@@ -27,6 +27,25 @@ func newSiteFixture(t *testing.T) (*Service, *storage.Store, uint) {
 	return NewService(store, func(context.Context) error { return nil }), store, up.ID
 }
 
+func TestNormalizeRateOptions(t *testing.T) {
+	opts, err := normalizeOptions(Options{
+		ConnectionLimitEnabled: true, ConnectionLimit: 12,
+		RateLimitEnabled: true, RateLimitPerSecond: 5, RateLimitBurst: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.ConnectionLimit != 12 || opts.RateLimitPerSecond != 5 || opts.RateLimitBurst != 10 {
+		t.Fatalf("unexpected rate options: %+v", opts)
+	}
+	if _, err := normalizeOptions(Options{ConnectionLimitEnabled: true}); err == nil {
+		t.Fatal("expected invalid connection limit")
+	}
+	if _, err := normalizeOptions(Options{RateLimitEnabled: true, RateLimitPerSecond: 5}); err == nil {
+		t.Fatal("expected invalid rate burst")
+	}
+}
+
 func TestSiteValidationAndConflicts(t *testing.T) {
 	svc, store, upID := newSiteFixture(t)
 	ctx := context.Background()
@@ -64,9 +83,23 @@ func TestSiteValidationAndConflicts(t *testing.T) {
 	if _, err := svc.Create(ctx, Input{Name: "mixed", ListenPort: 18080, Domains: []string{"m.test"}, Protocol: "https", ApplicationID: upID, CertificateID: &cert.ID}); err == nil {
 		t.Fatal("expected protocol mismatch on the same port")
 	}
+	if _, err := svc.Create(ctx, Input{Name: "large-body", ListenPort: 18082, Domains: []string{"large.test"}, Protocol: "http", ApplicationID: upID, MaxBodySize: 2 << 30}); err != nil {
+		t.Fatalf("2 GiB body limit should be accepted: %v", err)
+	}
+	if _, err := svc.Create(ctx, Input{Name: "too-large-body", ListenPort: 18083, Domains: []string{"too-large.test"}, Protocol: "http", ApplicationID: upID, MaxBodySize: 1<<40 + 1}); err == nil {
+		t.Fatal("expected >1 TiB body limit rejection")
+	}
+
 	disabled := false
 	if _, err := svc.SetEnabled(ctx, created.ID, disabled); err != nil {
 		t.Fatal(err)
+	}
+	updated, err := svc.Update(ctx, created.ID, Input{Name: "site-a2", ListenPort: 18080, Domains: []string{"example2.test"}, Protocol: "http", ApplicationID: upID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Code == "" || updated.Code != created.Code {
+		t.Fatalf("business code changed on update: %q -> %q", created.Code, updated.Code)
 	}
 	if _, err := svc.Get(ctx, created.ID); err != nil {
 		t.Fatal(err)

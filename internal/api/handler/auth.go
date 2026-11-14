@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +49,7 @@ func (s *Server) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, r, token, s.Auth.SessionCookieTTL())
+	_ = os.Remove(filepath.Join(s.Config.DataDir, "initial-admin-password.txt"))
 	s.auditForUser(r, user.ID, "login", "user", user.ID, "success", nil)
 	response.OK(w, map[string]any{"user": toUserView(user), "expires_in": int(s.Auth.SessionTTL().Seconds())})
 }

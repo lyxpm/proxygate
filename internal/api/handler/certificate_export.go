@@ -24,7 +24,7 @@ func (s *Server) ExportCertificateKey(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, apperr.New(apperr.Forbidden, "需要管理员权限"))
 		return
 	}
-	id, err := parseID(r, "id")
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -37,12 +37,7 @@ func (s *Server) ExportCertificateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.verifyReauth(w, r, in.Password) {
-		s.audit(r, "export_certificate_key", "certificate", id, "failure", nil)
-		return
-	}
-	cert, err := s.Certs.Get(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, err)
+		s.audit(r, "export_certificate_key", "certificate", cert.Code, "failure", nil)
 		return
 	}
 	certPEM, err := s.readCertificatePEM(cert)
@@ -78,7 +73,7 @@ func (s *Server) ExportCertificateKey(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = fmt.Sprintf("certificate-%d", cert.ID)
 	}
-	s.audit(r, "export_certificate_key", "certificate", cert.ID, "success", nil)
+	s.audit(r, "export_certificate_key", "certificate", cert.Code, "success", nil)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-key.zip"`, name))
 	w.Header().Set("Cache-Control", "no-store")

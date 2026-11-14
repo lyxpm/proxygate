@@ -73,9 +73,6 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		if r.TLS != nil {
-			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		}
 		h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
@@ -222,6 +219,13 @@ func AllowIP(raw []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(nets) == 0 {
+				// A configured allowlist that contains no valid CIDR must fail
+				// closed: silently allowing every client would turn a typo into
+				// a full security bypass.
+				if len(raw) > 0 {
+					response.Error(w, apperr.New(apperr.Forbidden, "admin IP allowlist is invalid or empty"))
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

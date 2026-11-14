@@ -69,6 +69,14 @@ func (s *Server) audit(r *http.Request, action, resource string, id any, result 
 	uid := uint(0)
 	if u := userFrom(r); u != nil {
 		uid = u.ID
+	} else if token := middleware.TokenFrom(r.Context()); token != nil {
+		if token.UserID != nil {
+			uid = *token.UserID
+		}
+		if detail == nil {
+			detail = make(map[string]any)
+		}
+		detail["api_token_id"] = token.ID
 	}
 	s.auditForUser(r, uid, action, resource, id, result, detail)
 }

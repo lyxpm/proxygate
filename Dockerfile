@@ -23,10 +23,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata wget \
-    && addgroup -S -g 10001 pg \
-    && adduser -S -u 10001 -G pg pg \
-    && mkdir -p /data \
-    && chown pg:pg /data
+    && mkdir -p /data
 WORKDIR /app
 COPY --from=build /out/proxygate /usr/local/bin/proxygate
 USER root

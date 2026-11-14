@@ -32,6 +32,6 @@ withDefaults(defineProps<{ items: SiteTrafficStat[]; limit?: number }>(), { limi
 
 const router = useRouter()
 function openSite(row: SiteTrafficStat) {
-  router.push({ path: '/statistics', query: { site_id: String(row.site_id) } })
+  router.push({ path: '/statistics', query: { site_code: row.site_code } })
 }
 </script>

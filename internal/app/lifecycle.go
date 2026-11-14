@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -56,6 +57,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.server = &http.Server{
 		Handler:           a.adminHTTPHandler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Minute,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
@@ -67,6 +69,13 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 	a.log.Info("ProxyGate started", "version", Version, "admin", "http://"+displayAddr(ln.Addr().String()), "data", a.cfg.DataDir)
 	a.startAdminHTTPS(ctx)
+	if !a.httpsRequired.Load() {
+		host, _, _ := net.SplitHostPort(a.cfg.AdminListen)
+		ip := net.ParseIP(strings.Trim(host, "[]"))
+		if ip == nil || !ip.IsLoopback() {
+			a.log.Warn("admin HTTP is exposed without TLS; enable admin HTTPS or bind management to loopback")
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -109,6 +118,11 @@ func (a *App) adminHTTPHandler() http.Handler {
 			host = h
 		}
 		host = strings.Trim(host, "[]")
+		if a.cfg.PublicURL != "" {
+			if u, err := url.Parse(a.cfg.PublicURL); err == nil && u.Hostname() != "" {
+				host = u.Hostname()
+			}
+		}
 		if host == "" {
 			host = "127.0.0.1"
 		}
@@ -177,6 +191,7 @@ func (a *App) startAdminHTTPS(ctx context.Context) {
 	srv := &http.Server{
 		Handler:           a.handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Minute,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 		TLSConfig:         tlsCfg,

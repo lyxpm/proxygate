@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -46,11 +48,20 @@ func accessFilter(r *http.Request, siteID uint, page, pageSize int) applog.Filte
 // AccessLogs queries the in-memory ring or a daily JSONL file.
 func (s *Server) AccessLogs(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := response.PageQuery(r)
-	filter := accessFilter(r, 0, page, pageSize)
+	var siteID uint
+	if code := strings.TrimSpace(r.URL.Query().Get("site_code")); code != "" {
+		row, err := s.Sites.GetByCode(r.Context(), code)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		siteID = row.ID
+	}
+	filter := accessFilter(r, siteID, page, pageSize)
 	if date := r.URL.Query().Get("date"); date != "" {
 		items, total, err := s.Access.QueryFile(date, filter)
 		if err != nil {
-			s.fail(w, r, apperr.NotFoundf("no access log for %s", date))
+			s.fail(w, r, apperr.Invalidf("cannot query access log: %v", err))
 			return
 		}
 		response.OK(w, response.Page{Items: items, Total: total, Page: page, PageSize: pageSize})
@@ -72,7 +83,7 @@ func (s *Server) AccessLogs(w http.ResponseWriter, r *http.Request) {
 
 func hasAccessQuery(r *http.Request) bool {
 	q := r.URL.Query()
-	for _, key := range []string{"site_id", "ip", "status", "q", "method", "request_id", "from", "to"} {
+	for _, key := range []string{"site_id", "site_code", "ip", "status", "q", "method", "request_id", "from", "to"} {
 		if q.Get(key) != "" {
 			return true
 		}
@@ -200,7 +211,30 @@ func (s *Server) DownloadAccessLog(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, apperr.NotFoundf("no access log for %s", date))
 		return
 	}
+	s.audit(r, "download_access_log", "access_log", nil, "success", map[string]any{"date": date})
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="access-%s.jsonl"`, date))
-	http.ServeFile(w, r, path)
+	f, err := os.Open(path)
+	if err != nil {
+		s.fail(w, r, apperr.NotFoundf("no access log for %s", date))
+		return
+	}
+	defer f.Close()
+	w.WriteHeader(http.StatusOK)
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var e applog.Entry
+		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+			continue
+		}
+		e.Path = applog.RedactRequestURI(e.Path)
+		line, err := json.Marshal(e)
+		if err != nil {
+			continue
+		}
+		if _, err := w.Write(append(line, '\n')); err != nil {
+			return
+		}
+	}
 }

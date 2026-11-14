@@ -5,11 +5,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/proxygate/proxygate/internal/api/response"
 	"github.com/proxygate/proxygate/internal/application"
 	"github.com/proxygate/proxygate/internal/proxy"
 	"github.com/proxygate/proxygate/internal/storage"
 )
+
+func applicationCode(r *http.Request) string {
+	return strings.TrimSpace(chi.URLParam(r, "code"))
+}
 
 type nodeView struct {
 	ID            uint      `json:"id"`
@@ -28,6 +33,7 @@ type nodeView struct {
 
 type applicationView struct {
 	ID                  uint       `json:"id"`
+	Code                string     `json:"code"`
 	Name                string     `json:"name"`
 	Strategy            string     `json:"strategy"`
 	Enabled             bool       `json:"enabled"`
@@ -54,7 +60,7 @@ func (s *Server) toApplicationView(up storage.Application) applicationView {
 		}
 	}
 	v := applicationView{
-		ID: up.ID, Name: up.Name, Strategy: up.Strategy, Enabled: up.Enabled,
+		ID: up.ID, Code: up.Code, Name: up.Name, Strategy: up.Strategy, Enabled: up.Enabled,
 		HealthCheckEnabled: up.HealthCheckEnabled, HealthCheckType: up.HealthCheckType,
 		HealthCheckPath: up.HealthCheckPath, HealthCheckInterval: up.HealthCheckInterval,
 		HealthCheckTimeout: up.HealthCheckTimeout, HealthyThreshold: up.HealthyThreshold,
@@ -129,18 +135,13 @@ func (s *Server) CreateApplication(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "create_application", "application", row.ID, "success", map[string]any{"name": row.Name})
+	s.audit(r, "create_application", "application", row.Code, "success", map[string]any{"name": row.Name})
 	response.Created(w, s.toApplicationView(*row))
 }
 
 // GetApplication returns one group.
 func (s *Server) GetApplication(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	row, err := s.Applications.Get(r.Context(), id)
+	row, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -150,7 +151,7 @@ func (s *Server) GetApplication(w http.ResponseWriter, r *http.Request) {
 
 // UpdateApplication saves a group.
 func (s *Server) UpdateApplication(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	current, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -160,39 +161,40 @@ func (s *Server) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	row, err := s.Applications.Update(r.Context(), id, in)
+	row, err := s.Applications.Update(r.Context(), current.ID, in)
 	if err != nil {
-		s.audit(r, "update_application", "application", id, "failure", nil)
+		s.audit(r, "update_application", "application", current.Code, "failure", nil)
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "update_application", "application", id, "success", nil)
+	s.audit(r, "update_application", "application", current.Code, "success", nil)
 	response.OK(w, s.toApplicationView(*row))
 }
 
 // DeleteApplication removes a group.
 func (s *Server) DeleteApplication(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	row, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if err := s.Applications.Delete(r.Context(), id); err != nil {
-		s.audit(r, "delete_application", "application", id, "failure", nil)
+	if err := s.Applications.Delete(r.Context(), row.ID); err != nil {
+		s.audit(r, "delete_application", "application", row.Code, "failure", nil)
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "delete_application", "application", id, "success", nil)
+	s.audit(r, "delete_application", "application", row.Code, "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // AddNode appends a backend.
 func (s *Server) AddNode(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	current, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	id := current.ID
 	var in application.NodeInput
 	if err := response.Decode(r, &in); err != nil {
 		s.fail(w, r, err)
@@ -200,12 +202,12 @@ func (s *Server) AddNode(w http.ResponseWriter, r *http.Request) {
 	}
 	node, err := s.Applications.AddNode(r.Context(), id, in)
 	if err != nil {
-		s.audit(r, "add_application_node", "application", id, "failure", nil)
+		s.audit(r, "add_application_node", "application", current.Code, "failure", nil)
 		s.fail(w, r, err)
 		return
 	}
 	up, _ := s.Applications.Get(r.Context(), id)
-	s.audit(r, "add_application_node", "application", id, "success", map[string]any{"address": node.Address})
+	s.audit(r, "add_application_node", "application", current.Code, "success", map[string]any{"address": node.Address})
 	if up != nil {
 		response.Created(w, s.toApplicationView(*up))
 		return
@@ -215,11 +217,12 @@ func (s *Server) AddNode(w http.ResponseWriter, r *http.Request) {
 
 // UpdateNode saves a backend.
 func (s *Server) UpdateNode(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	current, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	id := current.ID
 	nodeID, err := parseID(r, "node_id")
 	if err != nil {
 		s.fail(w, r, err)
@@ -234,7 +237,7 @@ func (s *Server) UpdateNode(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "update_application_node", "application", id, "success", nil)
+	s.audit(r, "update_application_node", "application", current.Code, "success", nil)
 	up, err := s.Applications.Get(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, err)
@@ -245,11 +248,12 @@ func (s *Server) UpdateNode(w http.ResponseWriter, r *http.Request) {
 
 // DeleteNode removes a backend.
 func (s *Server) DeleteNode(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
+	current, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	id := current.ID
 	nodeID, err := parseID(r, "node_id")
 	if err != nil {
 		s.fail(w, r, err)
@@ -259,7 +263,7 @@ func (s *Server) DeleteNode(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "delete_application_node", "application", id, "success", nil)
+	s.audit(r, "delete_application_node", "application", current.Code, "success", nil)
 	up, err := s.Applications.Get(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, err)
@@ -270,16 +274,11 @@ func (s *Server) DeleteNode(w http.ResponseWriter, r *http.Request) {
 
 // ApplicationHealth returns live node health.
 func (s *Server) ApplicationHealth(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	up, err := s.Applications.Get(r.Context(), id)
+	up, err := s.Applications.GetByCode(r.Context(), applicationCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	live := s.engineApplications()
-	response.OK(w, map[string]any{"application": s.toApplicationView(*up), "live": live[id]})
+	response.OK(w, map[string]any{"application": s.toApplicationView(*up), "live": live[up.ID]})
 }

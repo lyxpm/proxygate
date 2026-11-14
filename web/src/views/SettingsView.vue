@@ -59,7 +59,7 @@
                   </el-tooltip>
                 </span>
               </template>
-              <el-select v-model="settings.timezone" filterable allow-create style="width: 260px" placeholder="Asia/Shanghai">
+              <el-select v-model="settings.timezone" filterable allow-create style="width: 200px" placeholder="Asia/Shanghai">
                 <el-option v-for="tz in timezones" :key="tz" :label="tz" :value="tz" />
               </el-select>
             </el-form-item>
@@ -183,7 +183,7 @@
           <div class="version-actions">
             <span class="muted tiny">每次成功应用配置都会生成快照</span>
             <el-button @click="backup">下载备份</el-button>
-            <el-upload :auto-upload="false" :show-file-list="false" accept=".zip,application/zip" :on-change="restoreBackup">
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".zip,.pgbak,application/zip,application/octet-stream" :on-change="restoreBackup">
               <el-button>恢复备份</el-button>
             </el-upload>
             <el-button type="danger" plain size="small" :disabled="!selectedVersions.length" @click="batchRemoveVersions">
@@ -681,8 +681,13 @@ async function restartEngine() {
 }
 
 async function saveSettings(scope: 'basic' | 'security') {
-  saving.value = true
   const wasHTTPS = window.location.protocol === 'https:'
+  const enablingHTTPS = scope === 'security' && !wasHTTPS && settings.admin_https_enabled
+  if (enablingHTTPS && !settings.admin_https_certificate_id) {
+    ElMessage.warning('启用管理 HTTPS 前请先选择 HTTPS 证书')
+    return
+  }
+  saving.value = true
   try {
     const basic = {
       log_retention_days: String(settings.log_retention_days),
@@ -706,6 +711,15 @@ async function saveSettings(scope: 'basic' | 'security') {
       admin_https_certificate_id: String(settings.admin_https_certificate_id),
     }
     await api.put('/system/settings', scope === 'basic' ? basic : security)
+    if (scope === 'security' && !wasHTTPS && settings.admin_https_enabled) {
+      ElMessage.success('管理 HTTPS 已启用，正在切换到 HTTPS…')
+      window.setTimeout(() => {
+        const port = settings.admin_https_port || 18443
+        const target = `https://${window.location.hostname}:${port}${window.location.pathname}${window.location.search}${window.location.hash}`
+        window.location.replace(target)
+      }, 1200)
+      return
+    }
     if (scope === 'security' && wasHTTPS && !settings.admin_https_enabled) {
       ElMessage.success('管理 HTTPS 已关闭，正在切换到 HTTP…')
       window.setTimeout(() => {
@@ -739,7 +753,7 @@ async function backup() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `proxygate-${new Date().toISOString().slice(0, 10)}.zip`
+    a.download = `proxygate-${new Date().toISOString().slice(0, 10)}.pgbak`
     a.click()
     URL.revokeObjectURL(url)
   } catch (err) {

@@ -31,10 +31,11 @@ type siteHandler struct {
 	ipMode     string
 	ipRules    []*net.IPNet
 	active     atomic.Int64
+	limiter    *siteLimiter
 }
 
 func newSiteHandler(site SiteConfig, up *applicationRuntime, e *Engine) http.Handler {
-	h := &siteHandler{site: site, up: up, transports: make(map[uint]*http.Transport), observer: e.observer, ipMode: site.Options.IPMode}
+	h := &siteHandler{site: site, up: up, transports: make(map[uint]*http.Transport), observer: e.observer, ipMode: site.Options.IPMode, limiter: newSiteLimiter(site.Options)}
 	for _, raw := range site.Options.IPRules {
 		if _, network, err := net.ParseCIDR(raw); err == nil {
 			h.ipRules = append(h.ipRules, network)
@@ -116,6 +117,25 @@ func (h *siteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqBytes.Store(requestHeaderBytes(r))
 	h.active.Add(1)
 	defer h.active.Add(-1)
+
+	if !h.limiter.connectionAllowed(h.active.Load()) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(rec, "site connection limit exceeded", http.StatusServiceUnavailable)
+		h.record(r, start, rec, nil, http.StatusServiceUnavailable, reqBytes.Load())
+		return
+	}
+	if h.limiter != nil {
+		key := clientIP(r)
+		if key == "" {
+			key = "unknown"
+		}
+		if !h.limiter.rateAllowed(key, time.Now()) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(rec, "site request rate limit exceeded", http.StatusTooManyRequests)
+			h.record(r, start, rec, nil, http.StatusTooManyRequests, reqBytes.Load())
+			return
+		}
+	}
 
 	if h.ipDenied(clientIP(r)) {
 		http.Error(rec, "forbidden by site IP access control", http.StatusForbidden)
@@ -207,7 +227,7 @@ func (h *siteHandler) record(r *http.Request, start time.Time, rec *responseReco
 		Domain:        hostOnly(r.Host),
 		ClientIP:      ip,
 		Method:        r.Method,
-		Path:          r.URL.RequestURI(),
+		Path:          redactRequestURI(r.URL.RequestURI()),
 		Protocol:      r.Proto,
 		Status:        status,
 		Duration:      time.Since(start),
@@ -324,8 +344,9 @@ func writeStatus(w http.ResponseWriter, code int) {
 }
 
 func isUpgrade(r *http.Request) bool {
-	if r.Header.Get("Upgrade") != "" {
-		return true
+	upgrade := strings.ToLower(strings.TrimSpace(r.Header.Get("Upgrade")))
+	if upgrade != "websocket" && upgrade != "h2c" {
+		return false
 	}
 	return strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -311,6 +312,11 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.audit(r, "update_settings", "system", nil, "success", map[string]any{"keys": keysOf(in)})
+	if in["admin_https_enabled"] == "0" {
+		// Let browsers that previously received management HSTS drop it. This
+		// response is only reachable over HTTPS while the listener still exists.
+		w.Header().Set("Strict-Transport-Security", "max-age=0")
+	}
 	values, _ := s.Store.AllSettings(r.Context())
 	response.OK(w, map[string]any{"values": values})
 	if adminHTTPSChanged && s.RefreshAdminHTTPS != nil {
@@ -399,14 +405,21 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := fmt.Sprintf("proxygate-%s.zip", time.Now().Format("20060102-150405"))
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	zw := zip.NewWriter(w)
-	defer zw.Close()
+	backup, err := os.CreateTemp(filepath.Join(s.Config.DataDir, "tmp"), "backup-*.zip")
+	if err != nil {
+		s.fail(w, r, apperr.Internalf(err, "create backup archive"))
+		return
+	}
+	backupPath := backup.Name()
+	defer os.Remove(backupPath)
+	zw := zip.NewWriter(backup)
 	for _, dir := range []string{"database", "certificates", "acme", "config"} {
 		root := filepath.Join(s.Config.DataDir, dir)
-		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info == nil || info.IsDir() {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info == nil || info.IsDir() {
 				return nil
 			}
 			if info.Mode()&os.ModeSymlink != 0 {
@@ -414,7 +427,7 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 			}
 			rel, err := filepath.Rel(s.Config.DataDir, path)
 			if err != nil {
-				return nil
+				return err
 			}
 			switch filepath.ToSlash(rel) {
 			case "database/proxygate.db-wal", "database/proxygate.db-shm", "database/proxygate.db-journal", "config/restore-pending.zip":
@@ -430,17 +443,41 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 			}
 			src, err := os.Open(source)
 			if err != nil {
-				return nil
+				return err
 			}
-			_, _ = io.Copy(f, src)
-			_ = src.Close()
-			return nil
+			_, copyErr := io.Copy(f, src)
+			closeErr := src.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			return closeErr
 		})
 		if err != nil {
-			s.Logger.Warn("backup walk", "dir", dir, "error", err)
+			_ = zw.Close()
+			_ = backup.Close()
+			s.fail(w, r, apperr.Internalf(err, "create backup archive"))
+			return
 		}
 	}
+	if err := zw.Close(); err != nil {
+		_ = backup.Close()
+		s.fail(w, r, apperr.Internalf(err, "finalize backup archive"))
+		return
+	}
+	if err := backup.Close(); err != nil {
+		s.fail(w, r, apperr.Internalf(err, "close backup archive"))
+		return
+	}
+	encryptedPath := backupPath + ".pgbak"
+	if err := system.EncryptBackupFile(backupPath, encryptedPath, in.Password); err != nil {
+		s.fail(w, r, apperr.Internalf(err, "encrypt backup archive"))
+		return
+	}
+	defer os.Remove(encryptedPath)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+strings.TrimSuffix(name, ".zip")+`.pgbak"`)
 	s.audit(r, "backup", "system", nil, "success", nil)
+	http.ServeFile(w, r, encryptedPath)
 }
 
 // Restore stages an uploaded backup for the next process start.
@@ -451,7 +488,13 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
 	}
 	const limit = 512 << 20
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	if err := system.ScheduleRestore(s.Config.DataDir, r.Body, limit); err != nil {
+	backupReader, err := system.DecryptBackup(r.Body, r.Header.Get("X-Admin-Password"))
+	if err != nil {
+		s.fail(w, r, apperr.Invalidf("invalid backup: %v", err))
+		return
+	}
+	defer backupReader.Close()
+	if err := system.ScheduleRestore(s.Config.DataDir, backupReader, limit); err != nil {
 		s.audit(r, "restore", "system", nil, "failure", nil)
 		s.fail(w, r, apperr.Invalidf("invalid backup: %v", err))
 		return

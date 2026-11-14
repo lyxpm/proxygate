@@ -54,7 +54,7 @@ func (s *Store) Migrate() error {
 			return err
 		}
 	}
-	return nil
+	return s.backfillAuditResourceCodes()
 }
 
 // splitStatements splits a SQL script on semicolons while respecting single

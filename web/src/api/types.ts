@@ -26,6 +26,11 @@ export interface SiteOptions {
   bufferSize: number
   ipMode: '' | 'allow' | 'deny'
   ipList: string[]
+  connectionLimitEnabled?: boolean
+  connectionLimit?: number
+  rateLimitEnabled?: boolean
+  rateLimitPerSecond?: number
+  rateLimitBurst?: number
 }
 
 export interface HeaderRule {
@@ -35,14 +40,17 @@ export interface HeaderRule {
 
 export interface Site {
   id: number
+  code: string
   name: string
   enabled: boolean
   listen_port: number
   domains: string[]
   protocol: 'http' | 'https'
   application_id: number
+  application_code: string
   application_name: string
   certificate_id?: number | null
+  certificate_code: string
   certificate_name: string
   certificate_expires_at?: string | null
   redirect_https: boolean
@@ -60,8 +68,8 @@ export interface SiteInput {
   listen_port: number
   domains: string[]
   protocol: 'http' | 'https'
-  application_id: number
-  certificate_id?: number | null
+  application_code: string
+  certificate_code: string
   redirect_https: boolean
   proxy_timeout: number
   max_body_size: number
@@ -84,6 +92,7 @@ export interface Node {
 
 export interface Application {
   id: number
+  code: string
   name: string
   strategy: string
   enabled: boolean
@@ -127,6 +136,7 @@ export interface NodeInput {
 
 export interface Certificate {
   id: number
+  code: string
   name: string
   domains: string[]
   issuer: string
@@ -226,6 +236,7 @@ export interface Totals {
 
 export interface SiteTrafficStat {
   site_id: number
+  site_code: string
   site_name: string
   domains: string[]
   requests: number

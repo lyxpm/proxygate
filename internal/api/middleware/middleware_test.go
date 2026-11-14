@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -47,6 +48,18 @@ func TestRequireAdmin(t *testing.T) {
 	}
 }
 
+func TestSecurityHeadersDoNotLockAdminToHTTPS(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+	SecurityHeaders(next).ServeHTTP(rec, req)
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("management HSTS must stay disabled, got %q", got)
+	}
+}
+
 func TestAllowIP(t *testing.T) {
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,5 +92,13 @@ func TestAllowIP(t *testing.T) {
 	open.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent || !called {
 		t.Fatalf("empty allowlist should allow: %d", rec.Code)
+	}
+
+	called = false
+	invalid := AllowIP([]string{"not-a-cidr"})(next)
+	rec = httptest.NewRecorder()
+	invalid.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || called {
+		t.Fatalf("invalid allowlist should fail closed: %d", rec.Code)
 	}
 }

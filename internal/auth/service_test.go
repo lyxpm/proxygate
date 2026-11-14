@@ -51,9 +51,13 @@ func TestLoginSessionAndPasswordChange(t *testing.T) {
 }
 
 func TestAPITokens(t *testing.T) {
-	svc, _ := newAuth(t)
+	svc, store := newAuth(t)
 	ctx := context.Background()
-	raw, row, err := svc.CreateAPIToken(ctx, "ci", true, nil)
+	owner, err := store.GetUserByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, row, err := svc.CreateAPIToken(ctx, owner.ID, "ci", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

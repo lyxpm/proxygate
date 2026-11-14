@@ -3,6 +3,7 @@ package applog
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"sort"
 )
@@ -29,6 +30,10 @@ func (a *AccessLog) QueryFile(date string, f Filter) ([]Entry, int64, error) {
 	// Files are append-only in time order; sort just the window to tolerate a
 	// slightly out-of-order writer flush.
 	need := (f.Page-1)*f.PageSize + f.PageSize
+	const maxWindow = 10000
+	if need > maxWindow {
+		return nil, 0, errors.New("log page window is too large")
+	}
 	window := make([]Entry, need)
 	var total int64
 	scanner := bufio.NewScanner(file)
@@ -38,6 +43,7 @@ func (a *AccessLog) QueryFile(date string, f Filter) ([]Entry, int64, error) {
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
 			continue
 		}
+		e.Path = RedactRequestURI(e.Path)
 		if matchesFilter(e, f) {
 			window[total%int64(need)] = e
 			total++

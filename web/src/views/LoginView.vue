@@ -84,7 +84,8 @@ async function submit() {
   try {
     await auth.login(form.username, form.password, form.totp_code)
     ElMessage.success('登录成功')
-    const redirect = (route.query.redirect as string) || '/dashboard'
+    const requested = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+    const redirect = requested.startsWith('/') && !requested.startsWith('//') && !requested.startsWith('/\\') ? requested : '/dashboard'
     router.replace(redirect)
   } catch (err) {
     const message = err instanceof Error ? err.message : '登录失败'

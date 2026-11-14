@@ -94,6 +94,52 @@ func TestScheduleAndApplyRestore(t *testing.T) {
 	}
 }
 
+func TestRestoreJournalRollback(t *testing.T) {
+	dir := prepareDataDir(t)
+	stage := filepath.Join(dir, ".restore-stage-test")
+	rollback := filepath.Join(dir, ".restore-rollback-test")
+	if err := os.MkdirAll(filepath.Join(stage, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(rollback, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(rollback, "database"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "new.txt"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rollback, "config", "old.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "database", "new.db"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rollback, "database", "old.db"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	j := restoreJournal{Stage: stage, Rollback: rollback, Current: "database", Swaps: []string{"config"}}
+	if err := writeRestoreJournal(dir, j); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverRestoreJournal(dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "database", "old.db")); err != nil || string(b) != "old" {
+		t.Fatalf("database was not rolled back: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "database", "new.db")); !os.IsNotExist(err) {
+		t.Fatal("new database survived rollback")
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "config", "old.txt")); err != nil || string(b) != "old" {
+		t.Fatalf("config was not rolled back: %q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, restoreJournalName)); !os.IsNotExist(err) {
+		t.Fatal("journal was not removed")
+	}
+}
+
 func TestScheduleRejectsUnsafeAndIncompleteArchives(t *testing.T) {
 	target := prepareDataDir(t)
 	zipSlip := makeZip(t, map[string]string{

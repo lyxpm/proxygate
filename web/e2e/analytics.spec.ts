@@ -40,7 +40,7 @@ test.describe('analytics states and interactions', () => {
     await login(page)
     await expect(page.locator('.site-ranking .el-table__row').first()).toBeVisible({ timeout: 15_000 })
     await page.locator('.site-ranking .el-table__row').first().click()
-    await expect(page).toHaveURL(/\/statistics\?site_id=\d+/)
+    await expect(page).toHaveURL(/\/statistics\?site_code=[A-Z]+-[A-Z0-9]+/)
     await expect(page.getByText('站点流量明细').first()).toBeVisible()
   })
 

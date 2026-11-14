@@ -75,6 +75,7 @@ type Session struct {
 // Site is a reverse-proxy virtual host.
 type Site struct {
 	ID            uint   `gorm:"primaryKey"`
+	Code          string `gorm:"uniqueIndex;size:24"`
 	Name          string `gorm:"uniqueIndex;size:128;not null"`
 	Enabled       bool   `gorm:"index;not null;default:true"`
 	ListenPort    int    `gorm:"not null;default:80"`
@@ -96,6 +97,7 @@ type Site struct {
 // Application is a group of backend nodes with a load-balancing strategy.
 type Application struct {
 	ID                  uint   `gorm:"primaryKey"`
+	Code                string `gorm:"uniqueIndex;size:24"`
 	Name                string `gorm:"uniqueIndex;size:128;not null"`
 	Strategy            string `gorm:"size:32;not null;default:round_robin"`
 	Enabled             bool   `gorm:"not null;default:true"`
@@ -131,6 +133,7 @@ type ApplicationNode struct {
 // files, never in this table.
 type Certificate struct {
 	ID              uint   `gorm:"primaryKey"`
+	Code            string `gorm:"uniqueIndex;size:24"`
 	Name            string `gorm:"uniqueIndex;size:128;not null"`
 	Domains         StringList
 	Issuer          string     `gorm:"size:255"`
@@ -248,6 +251,7 @@ type CertificateLog struct {
 // is stored; the plaintext is shown once at creation time.
 type APIToken struct {
 	ID         uint       `gorm:"primaryKey"`
+	UserID     *uint      `gorm:"column:user_id;index"`
 	Name       string     `gorm:"size:128;not null"`
 	TokenHash  string     `gorm:"column:token_hash;uniqueIndex;size:64;not null"`
 	Scopes     StringList `gorm:"type:text;not null"`

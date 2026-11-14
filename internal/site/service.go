@@ -24,18 +24,23 @@ type Header struct {
 
 // Options is stored as JSON in sites.extra_config.
 type Options struct {
-	StripPrefix       string   `json:"stripPrefix"`
-	AddPrefix         string   `json:"addPrefix"`
-	RequestHeaders    []Header `json:"requestHeaders"`
-	ResponseHeaders   []Header `json:"responseHeaders"`
-	UpstreamSNI       string   `json:"upstreamSni"`
-	UpstreamTLSVerify *bool    `json:"upstreamTlsVerify,omitempty"`
-	KeepAlive         *bool    `json:"keepAlive,omitempty"`
-	UseUpstreamHost   bool     `json:"useUpstreamHost"`
-	ForwardClientIP   *bool    `json:"forwardClientIp,omitempty"`
-	BufferSize        int      `json:"bufferSize"`
-	IPMode            string   `json:"ipMode"`
-	IPList            []string `json:"ipList"`
+	StripPrefix            string   `json:"stripPrefix"`
+	AddPrefix              string   `json:"addPrefix"`
+	RequestHeaders         []Header `json:"requestHeaders"`
+	ResponseHeaders        []Header `json:"responseHeaders"`
+	UpstreamSNI            string   `json:"upstreamSni"`
+	UpstreamTLSVerify      *bool    `json:"upstreamTlsVerify,omitempty"`
+	KeepAlive              *bool    `json:"keepAlive,omitempty"`
+	UseUpstreamHost        bool     `json:"useUpstreamHost"`
+	ForwardClientIP        *bool    `json:"forwardClientIp,omitempty"`
+	BufferSize             int      `json:"bufferSize"`
+	IPMode                 string   `json:"ipMode"`
+	IPList                 []string `json:"ipList"`
+	ConnectionLimitEnabled bool     `json:"connectionLimitEnabled"`
+	ConnectionLimit        int      `json:"connectionLimit"`
+	RateLimitEnabled       bool     `json:"rateLimitEnabled"`
+	RateLimitPerSecond     int      `json:"rateLimitPerSecond"`
+	RateLimitBurst         int      `json:"rateLimitBurst"`
 }
 
 // DefaultOptions returns the defaults applied to new sites.
@@ -46,18 +51,20 @@ func DefaultOptions() Options {
 
 // Input is the create/update payload.
 type Input struct {
-	Name          string   `json:"name"`
-	Enabled       *bool    `json:"enabled"`
-	ListenPort    int      `json:"listen_port"`
-	Domains       []string `json:"domains"`
-	Protocol      string   `json:"protocol"`
-	ApplicationID uint     `json:"application_id"`
-	CertificateID *uint    `json:"certificate_id"`
-	RedirectHTTPS bool     `json:"redirect_https"`
-	ProxyTimeout  int      `json:"proxy_timeout"`
-	MaxBodySize   int64    `json:"max_body_size"`
-	Remark        string   `json:"remark"`
-	Options       Options  `json:"options"`
+	Name            string   `json:"name"`
+	Enabled         *bool    `json:"enabled"`
+	ListenPort      int      `json:"listen_port"`
+	Domains         []string `json:"domains"`
+	Protocol        string   `json:"protocol"`
+	ApplicationID   uint     `json:"application_id"`
+	ApplicationCode string   `json:"application_code"`
+	CertificateID   *uint    `json:"certificate_id"`
+	CertificateCode *string  `json:"certificate_code"`
+	RedirectHTTPS   bool     `json:"redirect_https"`
+	ProxyTimeout    int      `json:"proxy_timeout"`
+	MaxBodySize     int64    `json:"max_body_size"`
+	Remark          string   `json:"remark"`
+	Options         Options  `json:"options"`
 }
 
 // Service applies site rules.
@@ -81,6 +88,15 @@ func (s *Service) Get(ctx context.Context, id uint) (*storage.Site, error) {
 	site, err := s.store.GetSite(ctx, id)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, apperr.NotFoundf("site %d not found", id)
+	}
+	return site, err
+}
+
+// GetByCode returns one site by its immutable business code.
+func (s *Service) GetByCode(ctx context.Context, code string) (*storage.Site, error) {
+	site, err := s.store.GetSiteByCode(ctx, code)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, apperr.NotFoundf("site %s not found", code)
 	}
 	return site, err
 }
@@ -212,6 +228,16 @@ func (s *Service) build(ctx context.Context, in Input, current *storage.Site, al
 	if len(domains) == 0 {
 		return nil, apperr.InvalidField("domains", "at least one domain is required")
 	}
+	if code := strings.TrimSpace(in.ApplicationCode); code != "" {
+		up, err := s.store.GetApplicationByCode(ctx, code)
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, apperr.InvalidField("application_code", "selected application does not exist")
+		}
+		if err != nil {
+			return nil, err
+		}
+		in.ApplicationID = up.ID
+	}
 	if in.ApplicationID == 0 {
 		return nil, apperr.InvalidField("application_id", "application is required")
 	}
@@ -235,7 +261,17 @@ func (s *Service) build(ctx context.Context, in Input, current *storage.Site, al
 		return nil, apperr.InvalidField("application_id", "selected application has no enabled nodes")
 	}
 	var cert *storage.Certificate
-	if in.CertificateID != nil && *in.CertificateID != 0 {
+	if in.CertificateCode != nil && strings.TrimSpace(*in.CertificateCode) != "" {
+		cert, err = s.store.GetCertificateByCode(ctx, strings.TrimSpace(*in.CertificateCode))
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, apperr.InvalidField("certificate_code", "selected certificate does not exist")
+		}
+		if err != nil {
+			return nil, err
+		}
+		in.CertificateID = &cert.ID
+	}
+	if cert == nil && in.CertificateID != nil && *in.CertificateID != 0 {
 		cert, err = s.store.GetCertificate(ctx, *in.CertificateID)
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, apperr.InvalidField("certificate_id", "selected certificate does not exist")
@@ -263,14 +299,11 @@ func (s *Service) build(ctx context.Context, in Input, current *storage.Site, al
 		return nil, apperr.InvalidField("certificate_id", "HTTP sites cannot use a certificate")
 	}
 	timeout := in.ProxyTimeout
-	if timeout == 0 {
-		timeout = 30
+	if timeout < 0 || timeout > 3600 {
+		return nil, apperr.InvalidField("proxy_timeout", "proxy timeout must be between 0 and 3600 seconds")
 	}
-	if timeout < 1 || timeout > 3600 {
-		return nil, apperr.InvalidField("proxy_timeout", "proxy timeout must be between 1 and 3600 seconds")
-	}
-	if in.MaxBodySize < 0 || in.MaxBodySize > 1<<30 {
-		return nil, apperr.InvalidField("max_body_size", "max body size must be between 0 and 1 GiB")
+	if in.MaxBodySize < 0 || in.MaxBodySize > 1<<40 {
+		return nil, apperr.InvalidField("max_body_size", "max body size must be between 0 and 1 TiB")
 	}
 	opts, err := normalizeOptions(in.Options)
 	if err != nil {
@@ -291,6 +324,7 @@ func (s *Service) build(ctx context.Context, in Input, current *storage.Site, al
 		ExtraConfig: string(extra), Remark: strings.TrimSpace(in.Remark),
 	}
 	if current != nil {
+		site.Code = current.Code
 		site.CreatedAt = current.CreatedAt
 	}
 	return site, nil
@@ -384,6 +418,27 @@ func normalizeOptions(in Options) (Options, error) {
 	}
 	if mode != "" && len(out.IPList) == 0 {
 		return out, apperr.InvalidField("options.ipList", "IP access control requires at least one IP or CIDR")
+	}
+	out.ConnectionLimitEnabled = in.ConnectionLimitEnabled
+	out.ConnectionLimit = 0
+	if out.ConnectionLimitEnabled {
+		if in.ConnectionLimit < 1 || in.ConnectionLimit > 100000 {
+			return out, apperr.InvalidField("options.connectionLimit", "connection limit must be between 1 and 100000")
+		}
+		out.ConnectionLimit = in.ConnectionLimit
+	}
+	out.RateLimitEnabled = in.RateLimitEnabled
+	out.RateLimitPerSecond = 0
+	out.RateLimitBurst = 0
+	if out.RateLimitEnabled {
+		if in.RateLimitPerSecond < 1 || in.RateLimitPerSecond > 100000 {
+			return out, apperr.InvalidField("options.rateLimitPerSecond", "rate limit must be between 1 and 100000")
+		}
+		if in.RateLimitBurst < 1 || in.RateLimitBurst > 100000 {
+			return out, apperr.InvalidField("options.rateLimitBurst", "burst must be between 1 and 100000")
+		}
+		out.RateLimitPerSecond = in.RateLimitPerSecond
+		out.RateLimitBurst = in.RateLimitBurst
 	}
 	return out, nil
 }

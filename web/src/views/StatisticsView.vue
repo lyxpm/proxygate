@@ -6,7 +6,7 @@
           <el-option v-for="item in RANGE_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
         <el-select v-model="siteId" style="width: 200px" clearable placeholder="全部站点" @change="load">
-          <el-option v-for="s in sites" :key="s.id" :label="s.name" :value="String(s.id)" />
+          <el-option v-for="s in sites" :key="s.code" :label="s.name" :value="s.code" />
         </el-select>
         <span class="updated-at">更新于 {{ updatedLabel }}</span>
       </div>
@@ -165,7 +165,7 @@ const METRIC_OPTIONS: { value: MetricKey; label: string }[] = [
 
 const route = useRoute()
 const range = ref<RangeKey>('24h')
-const siteId = ref(typeof route.query.site_id === 'string' ? route.query.site_id : '')
+const siteId = ref(typeof route.query.site_code === 'string' ? route.query.site_code : '')
 const metric = ref<MetricKey>('requests')
 const totals = ref<Totals>()
 const series = ref<TrafficPoint[]>([])
@@ -178,7 +178,7 @@ const error = ref('')
 const lastUpdated = ref(0)
 let requestSeq = 0
 
-const selectedSiteName = computed(() => sites.value.find((s) => String(s.id) === siteId.value)?.name ?? '站点')
+const selectedSiteName = computed(() => sites.value.find((s) => s.code === siteId.value)?.name ?? '站点')
 const updatedLabel = computed(() => (lastUpdated.value ? new Date(lastUpdated.value).toLocaleTimeString('zh-CN', { hour12: false }) : '尚未更新'))
 const chartEmpty = computed(() => !loading.value && (totals.value?.requests ?? 0) === 0)
 
@@ -236,7 +236,7 @@ async function load() {
     const nextSiteStats = ranking.items ?? []
 
     if (siteId.value) {
-      const row = nextSiteStats.find((s) => String(s.site_id) === siteId.value)
+      const row = nextSiteStats.find((s) => s.site_code === siteId.value)
       nextTotals = row
         ? {
             ...emptyTotals(),
@@ -253,7 +253,7 @@ async function load() {
           }
         : emptyTotals()
       const [traffic, detail] = await Promise.all([
-        api.get<{ series: TrafficPoint[] }>(`/statistics/traffic?range=${range.value}&site_id=${siteId.value}`),
+        api.get<{ series: TrafficPoint[] }>(`/statistics/traffic?range=${range.value}&site_code=${siteId.value}`),
         api.get<{ top_ips: TopItem[]; top_paths: TopItem[] }>(`/sites/${siteId.value}/statistics?range=${range.value}`),
       ])
       if (seq !== requestSeq) return
@@ -290,7 +290,7 @@ async function loadSites() {
 }
 
 watch(
-  () => route.query.site_id,
+  () => route.query.site_code,
   (value) => {
     const next = typeof value === 'string' ? value : ''
     if (next !== siteId.value) {

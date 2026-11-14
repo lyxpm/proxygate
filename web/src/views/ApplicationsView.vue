@@ -13,9 +13,9 @@
     <div class="card">
       <el-table v-loading="loading" :data="filtered">
         <el-table-column label="应用服务" min-width="170">
-          <template #default="{ row }">
+          <template #default="{ row, $index }">
             <div style="font-weight: 600">{{ row.name }}</div>
-            <div class="muted tiny">#{{ row.id }}</div>
+            <div class="muted tiny">#{{ $index + 1 }}</div>
           </template>
         </el-table-column>
         <el-table-column label="策略" width="130">
@@ -58,6 +58,7 @@
 
     <el-dialog v-model="dialog" class="app-dialog" align-center draggable :close-on-click-modal="false" :title="editing ? '编辑应用服务' : '新建应用服务'" width="720px" destroy-on-close>
       <el-form label-position="top">
+        <div v-if="editingCode" class="app-code">{{ editingCode }}</div>
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="名称" required>
@@ -131,7 +132,7 @@
             <span class="muted tiny">TLS</span>
             <span></span>
             <template v-for="(n, i) in newNodes" :key="n.id || `new-${i}`">
-              <el-input v-model="n.address" placeholder="127.0.0.1:8080" />
+              <el-input v-model="n.address" placeholder="10.0.0.10:8080" />
               <el-input-number v-model="n.weight" :min="1" :max="1000" controls-position="right" style="width: 100%" />
               <el-input-number v-model="n.priority" :min="0" :max="100" controls-position="right" style="width: 100%" />
               <el-checkbox v-model="n.enabled" />
@@ -165,7 +166,8 @@ const loading = ref(false)
 const query = ref('')
 const dialog = ref(false)
 const editing = ref(false)
-const editingId = ref(0)
+const editingId = ref('')
+const editingCode = ref('')
 const saving = ref(false)
 const newNodes = ref<Array<{ id?: number; address: string; weight: number; priority: number; enabled?: boolean; tls_verify?: boolean }>>([
   { address: '', weight: 1, priority: 0, enabled: true, tls_verify: true },
@@ -210,7 +212,8 @@ async function load() {
 
 function openCreate() {
   editing.value = false
-  editingId.value = 0
+  editingId.value = ''
+  editingCode.value = ''
   Object.assign(form, blankForm())
   newNodes.value = [{ address: '', weight: 1, priority: 0, enabled: true, tls_verify: true }]
   dialog.value = true
@@ -218,7 +221,8 @@ function openCreate() {
 
 function openEdit(row: Application) {
   editing.value = true
-  editingId.value = row.id
+  editingId.value = row.code
+  editingCode.value = row.code
   Object.assign(form, {
     name: row.name,
     strategy: row.strategy,
@@ -278,7 +282,7 @@ async function submit() {
 async function remove(row: Application) {
   try {
     await ElMessageBox.confirm(`确认删除应用服务 “${row.name}”？请先解除关联站点。`, '删除应用服务', { type: 'warning' })
-    await api.del(`/applications/${row.id}`)
+    await api.del(`/applications/${row.code}`)
     ElMessage.success('已删除')
     await load()
   } catch (err) {

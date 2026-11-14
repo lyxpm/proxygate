@@ -98,6 +98,9 @@ func (s *Service) UpdateUser(ctx context.Context, id uint, role string, enabled 
 	if !enabled || password != "" {
 		_ = s.store.DeleteUserSessions(ctx, id)
 	}
+	if !enabled || password != "" {
+		_ = s.store.DeleteUserAPITokens(ctx, id)
+	}
 	if password != "" && s.passwordChanged != nil {
 		s.passwordChanged()
 	}

@@ -12,7 +12,7 @@
         <template v-if="tab === 'access'">
           <el-switch v-model="live" active-text="实时" @change="toggleLive" />
           <el-button :type="paused ? 'warning' : 'default'" size="small" @click="paused = !paused">{{ paused ? '继续' : '暂停' }}</el-button>
-          <el-button :icon="Download" size="small" @click="download">下载今日日志</el-button>
+          <el-button v-if="isAdmin" :icon="Download" size="small" @click="download">下载今日日志</el-button>
         </template>
         <el-button :icon="Refresh" size="small" @click="load">刷新</el-button>
       </div>
@@ -28,8 +28,8 @@
             <el-select v-model="filters.status" placeholder="状态码" clearable style="width: 130px" @change="loadAccess(1)">
               <el-option v-for="s in [200, 301, 302, 400, 401, 403, 404, 499, 500, 502, 503, 504]" :key="s" :label="String(s)" :value="String(s)" />
             </el-select>
-            <el-select v-model="filters.site_id" placeholder="站点" clearable style="width: 180px" @change="loadAccess(1)">
-              <el-option v-for="s in sites" :key="s.id" :label="s.name" :value="String(s.id)" />
+            <el-select v-model="filters.site_code" placeholder="站点" clearable style="width: 180px" @change="loadAccess(1)">
+              <el-option v-for="s in sites" :key="s.code" :label="s.name" :value="s.code" />
             </el-select>
             <el-button type="primary" @click="loadAccess(1)">查询</el-button>
           </div>
@@ -116,7 +116,11 @@
             <el-table-column label="资源" width="120">
               <template #default="{ row }">{{ resourceLabel(row.ResourceType) }}</template>
             </el-table-column>
-            <el-table-column prop="ResourceID" label="资源 ID" width="90" />
+            <el-table-column label="资源标识" width="150">
+              <template #default="{ row }">
+                <span class="code">{{ auditResourceLabel(row) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="ClientIP" label="客户端" width="130" />
             <el-table-column label="结果" width="90">
               <template #default="{ row }">
@@ -139,14 +143,17 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Download, Refresh } from '@element-plus/icons-vue'
 import { api, formatTime } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { auditActionLabel, categoryLabel, levelLabel, levelTagType, messageLabel, resourceLabel, resultLabel } from '@/utils/labels'
 import type { AccessLog, AuditLog, Page, Site, SystemLog } from '@/api/types'
 
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const route = useRoute()
 const tab = ref('access')
 const live = ref(false)
@@ -169,7 +176,7 @@ const filters = reactive({
   q: '',
   ip: '',
   status: '',
-  site_id: (route.query.site_id as string) || '',
+  site_code: (route.query.site_code as string) || '',
   date: '',
 })
 let es: EventSource | undefined
@@ -185,13 +192,21 @@ function rowClass({ row }: { row: AccessLog }) {
   return row.status >= 500 ? 'log-row-error' : ''
 }
 
+function auditResourceLabel(row: AuditLog): string {
+  const id = String(row.ResourceID || '')
+  if (!id) return '-'
+  const business = row.ResourceType === 'site' || row.ResourceType === 'application' || row.ResourceType === 'certificate'
+  if (business && /^\d+$/.test(id)) return `#${id}（旧 ID）`
+  return id
+}
+
 async function loadAccess(p = page.value) {
   page.value = p
   const params = new URLSearchParams({ page: String(p), page_size: String(pageSize) })
   if (filters.q) params.set('q', filters.q)
   if (filters.ip) params.set('ip', filters.ip)
   if (filters.status) params.set('status', filters.status)
-  if (filters.site_id) params.set('site_id', filters.site_id)
+  if (filters.site_code) params.set('site_code', filters.site_code)
   if (filters.date) params.set('date', filters.date)
   try {
     const data = await api.get<Page<AccessLog>>(`/logs/access?${params}`)
@@ -275,8 +290,9 @@ function showDetail(row: AccessLog) {
 }
 
 function download() {
+  if (!isAdmin.value) return
   const suffix = filters.date ? `?date=${encodeURIComponent(filters.date)}` : ''
-  window.open(`/api/v1/logs/access/download${suffix}`, '_blank')
+  window.open(`/api/v1/logs/access/download${suffix}`, '_blank', 'noopener,noreferrer')
 }
 
 onMounted(async () => {

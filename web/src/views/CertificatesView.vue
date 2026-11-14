@@ -193,6 +193,7 @@
       <div v-loading="detailLoading">
         <el-descriptions v-if="detail" :column="2" border size="small">
           <el-descriptions-item label="名称">{{ detail.name }}</el-descriptions-item>
+          <el-descriptions-item label="业务编码"><span class="code">{{ detail.code }}</span></el-descriptions-item>
           <el-descriptions-item label="状态">{{ detail.status }}</el-descriptions-item>
           <el-descriptions-item label="颁发者" :span="2">{{ detail.issuer }}</el-descriptions-item>
           <el-descriptions-item label="Subject" :span="2">{{ detail.subject }}</el-descriptions-item>
@@ -395,7 +396,7 @@ async function submitUpload() {
 
 async function renew(row: Certificate) {
   try {
-    await api.post(`/certificates/${row.id}/renew`)
+    await api.post(`/certificates/${row.code}/renew`)
     ElMessage.success('续期任务已提交')
     await loadAll()
   } catch (err) {
@@ -406,7 +407,7 @@ async function renew(row: Certificate) {
 async function removeCert(row: Certificate) {
   try {
     await ElMessageBox.confirm(`确认删除证书 “${row.name}”？已关联的站点需要先解除关联。`, '删除证书', { type: 'warning' })
-    await api.del(`/certificates/${row.id}`)
+    await api.del(`/certificates/${row.code}`)
     ElMessage.success('证书已删除')
     await loadAll()
   } catch (err) {
@@ -419,7 +420,7 @@ async function openDetail(row: Certificate) {
   detailLoading.value = true
   detail.value = undefined
   try {
-    detail.value = await api.get<CertDetail>(`/certificates/${row.id}/detail`)
+    detail.value = await api.get<CertDetail>(`/certificates/${row.code}/detail`)
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '读取证书失败')
     detailDialog.value = false
@@ -428,9 +429,9 @@ async function openDetail(row: Certificate) {
   }
 }
 
-function downloadCert(row: { id: number }) {
+function downloadCert(row: Certificate) {
   const a = document.createElement('a')
-  a.href = `/api/v1/certificates/${row.id}/download`
+  a.href = `/api/v1/certificates/${row.code}/download`
   a.rel = 'noopener'
   document.body.appendChild(a)
   a.click()
@@ -448,7 +449,7 @@ async function exportCertificateKey() {
         inputValidator: (v: string) => (v ? true : '请输入管理员密码'),
       },
     )
-    const res = await fetch(`/api/v1/certificates/${detail.value.id}/export`, {
+    const res = await fetch(`/api/v1/certificates/${detail.value.code}/export`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
@@ -484,7 +485,7 @@ async function showLogs(row: Certificate) {
   activeCert.value = row
   logsDrawer.value = true
   try {
-    const data = await api.get<{ items: CertLog[] }>(`/certificates/${row.id}/logs`)
+    const data = await api.get<{ items: CertLog[] }>(`/certificates/${row.code}/logs`)
     certLogs.value = data.items ?? []
   } catch (err) {
     certLogs.value = []

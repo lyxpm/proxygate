@@ -90,6 +90,9 @@ func PageQuery(r *http.Request) (page, pageSize int) {
 			page = n
 		}
 	}
+	if page > 1000 {
+		page = 1000
+	}
 	if v := r.URL.Query().Get("page_size"); v != "" {
 		if n, err := parseInt(v); err == nil && n > 0 && n <= 500 {
 			pageSize = n

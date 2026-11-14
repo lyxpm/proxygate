@@ -17,9 +17,10 @@ import (
 
 // Service implements application business rules on top of storage.
 type Service struct {
-	store  *storage.Store
-	reload func(context.Context) error
-	log    *slog.Logger
+	store         *storage.Store
+	reload        func(context.Context) error
+	log           *slog.Logger
+	allowLoopback bool
 }
 
 // NewService creates an application service. reload is called after every
@@ -30,6 +31,11 @@ func NewService(store *storage.Store, reload func(context.Context) error, log *s
 	}
 	return &Service{store: store, reload: reload, log: log}
 }
+
+// SetAllowLoopback permits loopback upstreams for local sidecar deployments.
+// It is disabled by default so user-provided node addresses cannot become an
+// SSRF path to the management API or other local services.
+func (s *Service) SetAllowLoopback(allow bool) { s.allowLoopback = allow }
 
 // Input is the create/update payload for a group.
 type Input struct {
@@ -68,6 +74,15 @@ func (s *Service) Get(ctx context.Context, id uint) (*storage.Application, error
 	up, err := s.store.GetApplication(ctx, id)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, apperr.NotFoundf("application %d not found", id)
+	}
+	return up, err
+}
+
+// GetByCode returns one application by its immutable business code.
+func (s *Service) GetByCode(ctx context.Context, code string) (*storage.Application, error) {
+	up, err := s.store.GetApplicationByCode(ctx, code)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, apperr.NotFoundf("application %s not found", code)
 	}
 	return up, err
 }
@@ -111,6 +126,8 @@ func (s *Service) Update(ctx context.Context, id uint, in Input) (*storage.Appli
 	if err != nil {
 		return nil, err
 	}
+	updated.Code = up.Code
+	updated.CreatedAt = up.CreatedAt
 	existing := make(map[uint]storage.ApplicationNode, len(up.Nodes))
 	for _, n := range up.Nodes {
 		existing[n.ID] = n
@@ -400,7 +417,14 @@ func (s *Service) normalizeAddress(raw string) (string, error) {
 	if host == "" {
 		return "", apperr.InvalidField("address", "host is required")
 	}
-	if ip := net.ParseIP(host); ip != nil {
+	lowerHost := strings.TrimSuffix(strings.ToLower(host), ".")
+	if !s.allowLoopback && (lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost")) {
+		return "", apperr.InvalidField("address", "loopback addresses are not allowed")
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		if ip.IsLoopback() && !s.allowLoopback {
+			return "", apperr.InvalidField("address", "loopback addresses are not allowed")
+		}
 		if ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
 			return "", apperr.InvalidField("address", "link-local and metadata addresses are not allowed")
 		}

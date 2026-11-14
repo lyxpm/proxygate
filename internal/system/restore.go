@@ -4,6 +4,7 @@ package system
 import (
 	"archive/zip"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -162,9 +163,28 @@ func validateMasterKey(f *zip.File) error {
 	return nil
 }
 
-// ApplyPendingRestore extracts a staged archive into dataDir. It is invoked by
-// config.Load before the database is opened.
+// restoreRoots are the top-level data directories that a backup may replace.
+var restoreRoots = []string{"database", "certificates", "acme", "config", "logs"}
+
+type restoreJournal struct {
+	Stage             string   `json:"stage"`
+	Rollback          string   `json:"rollback"`
+	Current           string   `json:"current,omitempty"`
+	CurrentOldExisted bool     `json:"currentOldExisted,omitempty"`
+	Swaps             []string `json:"swaps,omitempty"`
+	Committed         bool     `json:"committed"`
+	Pending           string   `json:"pending"`
+}
+
+const restoreJournalName = ".restore-journal.json"
+
+// ApplyPendingRestore stages, validates and then swaps complete top-level
+// directories. A journal makes interrupted swaps recoverable on the next
+// process start.
 func ApplyPendingRestore(dataDir string) error {
+	if err := recoverRestoreJournal(dataDir); err != nil {
+		return err
+	}
 	pending := filepath.Join(dataDir, filepath.FromSlash(PendingFile))
 	if _, err := os.Stat(pending); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -179,17 +199,27 @@ func ApplyPendingRestore(dataDir string) error {
 		zr.Close()
 		return err
 	}
-	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
-		_ = os.Remove(filepath.Join(dataDir, "database", "proxygate.db"+suffix))
-		_ = os.Remove(filepath.Join(dataDir, "database", "proxy-manager.db"+suffix))
+	ts := time.Now().Format("20060102-150405.000000")
+	stage := filepath.Join(dataDir, ".restore-stage-"+ts)
+	rollback := filepath.Join(dataDir, ".restore-rollback-"+ts)
+	pendingTemp := filepath.Join(dataDir, "tmp", "restore-pending-"+ts+".zip")
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		zr.Close()
+		return err
 	}
+	cleanupStage := true
+	defer func() {
+		if cleanupStage {
+			_ = os.RemoveAll(stage)
+		}
+	}()
 	for _, f := range zr.File {
 		name := path.Clean(filepath.ToSlash(f.Name))
 		if name == "." || strings.HasSuffix(name, "/") {
 			continue
 		}
-		target := filepath.Join(dataDir, filepath.FromSlash(name))
-		if err := ensureInside(dataDir, target); err != nil {
+		target := filepath.Join(stage, filepath.FromSlash(name))
+		if err := ensureInside(stage, target); err != nil {
 			zr.Close()
 			return err
 		}
@@ -199,23 +229,222 @@ func ApplyPendingRestore(dataDir string) error {
 		}
 		if err := extractFileAtomic(f, target); err != nil {
 			zr.Close()
-			return fmt.Errorf("restore %s: %w", name, err)
+			return fmt.Errorf("stage %s: %w", name, err)
 		}
 	}
 	if err := zr.Close(); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(pendingTemp), 0o750); err != nil {
+		return err
+	}
+	if err := os.Rename(pending, pendingTemp); err != nil {
+		return fmt.Errorf("move pending restore: %w", err)
+	}
+	if err := os.MkdirAll(rollback, 0o700); err != nil {
+		_ = os.Rename(pendingTemp, pending)
+		return err
+	}
+	j := restoreJournal{Stage: stage, Rollback: rollback, Pending: pendingTemp}
+	if err := writeRestoreJournal(dataDir, j); err != nil {
+		_ = os.Rename(pendingTemp, pending)
+		return err
+	}
+	fail := func(err error) error {
+		if rbErr := rollbackRestore(dataDir, j); rbErr != nil {
+			return fmt.Errorf("%w; restore rollback failed: %v", err, rbErr)
+		}
+		return err
+	}
+	for _, root := range restoreRoots {
+		staged := filepath.Join(stage, root)
+		if _, err := os.Stat(staged); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fail(err)
+		}
+		j.Current = root
+		current := filepath.Join(dataDir, root)
+		_, statErr := os.Stat(current)
+		j.CurrentOldExisted = statErr == nil
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return fail(statErr)
+		}
+		if err := writeRestoreJournal(dataDir, j); err != nil {
+			return fail(err)
+		}
+		old := filepath.Join(rollback, root)
+		if j.CurrentOldExisted {
+			if err := os.MkdirAll(filepath.Dir(old), 0o700); err != nil {
+				return fail(err)
+			}
+			if err := os.Rename(current, old); err != nil {
+				return fail(err)
+			}
+		}
+		if err := os.Rename(staged, current); err != nil {
+			_ = os.Rename(old, current)
+			return fail(err)
+		}
+		j.Swaps = append(j.Swaps, root)
+		j.Current = ""
+		j.CurrentOldExisted = false
+		if err := writeRestoreJournal(dataDir, j); err != nil {
+			return fail(err)
+		}
+	}
 	for _, name := range []string{"proxygate.db", "proxy-manager.db"} {
 		dbPath := filepath.Join(dataDir, "database", name)
 		if _, err := os.Stat(dbPath); err == nil {
 			if err := storage.ResetConfigVersionsFile(dbPath); err != nil {
-				return fmt.Errorf("reset restored config versions: %w", err)
+				return fail(fmt.Errorf("reset restored config versions: %w", err))
 			}
 			break
 		}
 	}
+	j.Committed = true
+	if err := writeRestoreJournal(dataDir, j); err != nil {
+		return fail(err)
+	}
+	cleanupStage = false
+	_ = os.RemoveAll(stage)
+	_ = os.RemoveAll(rollback)
+	if err := archiveAppliedRestore(dataDir, pendingTemp); err != nil {
+		// The restore itself is committed; keep the archive for diagnostics.
+		return err
+	}
+	_ = os.Remove(filepath.Join(dataDir, restoreJournalName))
+	return nil
+}
+
+func writeRestoreJournal(dataDir string, j restoreJournal) error {
+	raw, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dataDir, restoreJournalName)
+	tmp, err := os.CreateTemp(dataDir, ".restore-journal-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name)
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
+}
+
+func readRestoreJournal(dataDir string) (restoreJournal, bool, error) {
+	var j restoreJournal
+	raw, err := os.ReadFile(filepath.Join(dataDir, restoreJournalName))
+	if errors.Is(err, os.ErrNotExist) {
+		return j, false, nil
+	}
+	if err != nil {
+		return j, false, err
+	}
+	if err := json.Unmarshal(raw, &j); err != nil {
+		return j, false, err
+	}
+	return j, true, nil
+}
+
+func recoverRestoreJournal(dataDir string) error {
+	j, ok, err := readRestoreJournal(dataDir)
+	if err != nil {
+		return fmt.Errorf("read restore journal: %w", err)
+	}
+	if !ok {
+		return nil
+	}
+	if !j.Committed {
+		if err := rollbackRestore(dataDir, j); err != nil {
+			return fmt.Errorf("recover interrupted restore: %w", err)
+		}
+		return nil
+	}
+	_ = os.RemoveAll(j.Stage)
+	_ = os.RemoveAll(j.Rollback)
+	if j.Pending != "" {
+		_ = archiveAppliedRestore(dataDir, j.Pending)
+	}
+	return os.Remove(filepath.Join(dataDir, restoreJournalName))
+}
+
+func rollbackRestore(dataDir string, j restoreJournal) error {
+	// The current directory may have been swapped but not yet recorded.
+	if j.Current != "" && allowedRoots[j.Current] {
+		if err := rollbackCurrent(dataDir, j); err != nil {
+			return err
+		}
+	}
+	for i := len(j.Swaps) - 1; i >= 0; i-- {
+		if err := rollbackRoot(dataDir, j.Rollback, j.Swaps[i]); err != nil {
+			return err
+		}
+	}
+	_ = os.RemoveAll(j.Stage)
+	_ = os.RemoveAll(j.Rollback)
+	if j.Pending != "" {
+		_ = archiveAppliedRestore(dataDir, j.Pending)
+	}
+	return os.Remove(filepath.Join(dataDir, restoreJournalName))
+}
+
+func rollbackCurrent(dataDir string, j restoreJournal) error {
+	if !allowedRoots[j.Current] {
+		return fmt.Errorf("unexpected restore root %q", j.Current)
+	}
+	current := filepath.Join(dataDir, j.Current)
+	old := filepath.Join(j.Rollback, j.Current)
+	if _, err := os.Stat(old); err == nil {
+		if err := os.RemoveAll(current); err != nil {
+			return err
+		}
+		return os.Rename(old, current)
+	}
+	if !j.CurrentOldExisted {
+		// The old root did not exist; remove a possibly installed new root.
+		return os.RemoveAll(current)
+	}
+	// The old root still exists in place because the rename had not happened.
+	return nil
+}
+
+func rollbackRoot(dataDir, rollback, root string) error {
+	if !allowedRoots[root] {
+		return fmt.Errorf("unexpected restore root %q", root)
+	}
+	current := filepath.Join(dataDir, root)
+	old := filepath.Join(rollback, root)
+	if _, err := os.Stat(old); err == nil {
+		if err := os.RemoveAll(current); err != nil {
+			return err
+		}
+		return os.Rename(old, current)
+	}
+	// The old directory did not exist. Remove the partially installed one.
+	return os.RemoveAll(current)
+}
+
+func archiveAppliedRestore(dataDir, pending string) error {
+	if _, err := os.Stat(pending); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	applied := filepath.Join(dataDir, "backups", "restore-applied-"+time.Now().Format("20060102-150405")+".zip")
-	if err := os.MkdirAll(filepath.Dir(applied), 0o750); err != nil || os.Rename(pending, applied) != nil {
+	if err := os.MkdirAll(filepath.Dir(applied), 0o750); err != nil {
+		return err
+	}
+	if err := os.Rename(pending, applied); err != nil {
 		_ = os.Remove(pending)
 	}
 	return nil

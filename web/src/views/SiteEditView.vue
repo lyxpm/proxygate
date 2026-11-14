@@ -14,6 +14,7 @@
       <div class="site-dialog-heading">
         <div>
           <div class="site-dialog-title">{{ isEdit ? '编辑站点' : '新建站点' }}</div>
+          <div v-if="siteCode" class="site-dialog-code">{{ siteCode }}</div>
           <div class="site-dialog-subtitle">配置域名、应用服务及代理规则</div>
         </div>
         <div class="site-dialog-head-actions">
@@ -80,12 +81,12 @@
         <div class="editor-section-title">应用服务</div>
         <el-form label-position="top">
           <el-form-item label="选择应用服务" required>
-            <el-select v-model="form.application_id" placeholder="请选择应用服务" style="width: 100%" filterable>
+            <el-select v-model="form.application_code" placeholder="请选择应用服务" style="width: 100%" filterable>
               <el-option
                 v-for="app in applications"
-                :key="app.id"
+                :key="app.code"
                 :label="`${app.name}（${app.nodes.length} 个节点）`"
-                :value="app.id"
+                :value="app.code"
               />
             </el-select>
           </el-form-item>
@@ -130,8 +131,8 @@
         <template v-if="form.protocol === 'https'">
           <el-form label-position="top">
             <el-form-item label="SSL 证书" required>
-              <el-select v-model="form.certificate_id" placeholder="请选择证书" style="width: 100%" filterable>
-                <el-option v-for="c in usableCerts" :key="c.id" :label="`${c.name}（${c.domains.join(', ')}）`" :value="c.id" />
+              <el-select v-model="form.certificate_code" placeholder="请选择证书" style="width: 100%" filterable>
+                <el-option v-for="c in usableCerts" :key="c.code" :label="`${c.name}（${c.domains.join(', ')}）`" :value="c.code" />
               </el-select>
               <div class="form-hint">需覆盖站点全部域名，前往 <el-link type="primary" @click="goTo('/certificates')">SSL 证书</el-link> 申请。</div>
             </el-form-item>
@@ -162,15 +163,35 @@
                 <div class="advanced-group-title">超时与请求体</div>
                 <div class="advanced-grid">
                   <el-form-item label="请求超时（秒）">
-                    <el-input-number v-model="form.proxy_timeout" :min="1" :max="3600" controls-position="right" style="width: 100%" />
-                  </el-form-item>
-                  <el-form-item label="最大请求体（0 不限制）">
-                    <el-input-number v-model="form.max_body_size" :min="0" :max="1073741824" :step="1048576" controls-position="right" style="width: 100%" />
+                    <el-input-number v-model="form.proxy_timeout" :min="0" :max="3600" controls-position="right" style="width: 100%" />
                   </el-form-item>
                   <el-form-item label="Buffer 大小（字节）">
                     <el-input-number v-model="form.options.bufferSize" :min="1024" :max="1048576" :step="1024" controls-position="right" style="width: 100%" />
                   </el-form-item>
-                  <el-form-item label="节点 SNI（可选）">
+                  <el-form-item label="最大请求体" class="advanced-span">
+                    <div class="body-size-control">
+                      <el-checkbox v-model="bodyUnlimited">不限制</el-checkbox>
+                      <template v-if="!bodyUnlimited">
+                        <el-input-number
+                          v-model="bodyValue"
+                          :min="0.01"
+                          :max="bodyValueMax"
+                          :step="1"
+                          :precision="2"
+                          controls-position="right"
+                          style="flex: 1; min-width: 120px"
+                        />
+                        <el-select v-model="bodyUnit" style="width: 88px">
+                          <el-option label="B" value="B" />
+                          <el-option label="KB" value="KB" />
+                          <el-option label="MB" value="MB" />
+                          <el-option label="GB" value="GB" />
+                          <el-option label="TB" value="TB" />
+                        </el-select>
+                      </template>
+                    </div>
+                  </el-form-item>
+                  <el-form-item label="节点 SNI" class="advanced-span">
                     <el-input v-model="form.options.upstreamSni" placeholder="默认使用节点地址" />
                   </el-form-item>
                 </div>
@@ -200,17 +221,67 @@
 
               <div class="advanced-group">
                 <div class="advanced-group-title">IP 访问控制</div>
-                <div class="advanced-grid">
+                <div class="advanced-grid ip-grid" :class="{ 'ip-grid-single': !form.options.ipMode }">
                   <el-form-item label="模式">
-                    <el-select v-model="form.options.ipMode" style="width: 100%">
+                    <el-select v-model="form.options.ipMode" placeholder="不限制" style="width: 100%">
                       <el-option label="不限制" value="" />
                       <el-option label="仅允许列表" value="allow" />
                       <el-option label="拒绝列表" value="deny" />
                     </el-select>
                   </el-form-item>
-                  <el-form-item label="IP / CIDR">
-                    <el-input v-model="ipListText" type="textarea" :rows="2" :disabled="!form.options.ipMode" placeholder="127.0.0.1&#10;10.0.0.0/8" />
+                  <el-form-item v-if="form.options.ipMode" label="IP / CIDR">
+                    <el-input v-model="ipListDraft" type="textarea" :rows="2" @blur="commitIPList" />
                   </el-form-item>
+                </div>
+              </div>
+
+              <div class="advanced-group">
+                <div class="advanced-group-title">站点防护</div>
+                <div class="protection-grid">
+                  <div class="protection-card">
+                    <div class="protection-head">
+                      <span>并发连接限制</span>
+                      <el-switch v-model="form.options.connectionLimitEnabled" />
+                    </div>
+                    <div v-if="form.options.connectionLimitEnabled" class="protection-fields">
+                      <div class="protection-field">
+                        <span>最大并发</span>
+                        <el-input-number
+                          v-model="form.options.connectionLimit"
+                          :min="1"
+                          :max="100000"
+                          controls-position="right"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="protection-card">
+                    <div class="protection-head">
+                      <span>每 IP 请求限流</span>
+                      <el-switch v-model="form.options.rateLimitEnabled" />
+                    </div>
+                    <div v-if="form.options.rateLimitEnabled" class="protection-fields">
+                      <div class="protection-field">
+                        <span>每秒</span>
+                        <el-input-number
+                          v-model="form.options.rateLimitPerSecond"
+                          :min="1"
+                          :max="100000"
+                          controls-position="right"
+                        />
+                      </div>
+                      <div class="protection-field">
+                        <span>突发</span>
+                        <el-input-number
+                          v-model="form.options.rateLimitBurst"
+                          :min="1"
+                          :max="100000"
+                          controls-position="right"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -261,7 +332,7 @@ import type { Certificate, Page, Site, SiteInput, Application } from '@/api/type
 
 const props = defineProps<{
   modelValue: boolean
-  siteId?: number
+  siteId?: string
   template?: Record<string, any> | null
 }>()
 const emit = defineEmits<{
@@ -273,8 +344,8 @@ const visible = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit('update:modelValue', value),
 })
-const siteId = computed(() => props.siteId ?? 0)
-const isEdit = computed(() => siteId.value > 0)
+const siteId = computed(() => props.siteId ?? '')
+const isEdit = computed(() => siteId.value !== '')
 const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
@@ -284,6 +355,7 @@ const advancedOpen = ref<string[]>([])
 const domainInput = ref('')
 const domainInputRef = ref<HTMLInputElement>()
 const domainError = ref('')
+const siteCode = ref('')
 const initialSnapshot = ref('')
 const dirty = computed(
   () =>
@@ -299,8 +371,8 @@ const form = reactive<SiteInput>({
   listen_port: 80,
   domains: [''],
   protocol: 'http',
-  application_id: undefined as unknown as number,
-  certificate_id: null,
+  application_code: '',
+  certificate_code: '',
   redirect_https: false,
   proxy_timeout: 30,
   max_body_size: 0,
@@ -318,18 +390,46 @@ const form = reactive<SiteInput>({
     bufferSize: 32768,
     ipMode: '',
     ipList: [],
+    connectionLimitEnabled: false,
+    connectionLimit: 100,
+    rateLimitEnabled: false,
+    rateLimitPerSecond: 10,
+    rateLimitBurst: 20,
   },
 })
 
+const bodyUnitBytes: Record<string, number> = {
+  B: 1,
+  KB: 1024,
+  MB: 1024 ** 2,
+  GB: 1024 ** 3,
+  TB: 1024 ** 4,
+}
+const bodyUnit = ref('MB')
+const bodyUnlimited = computed({
+  get: () => form.max_body_size === 0,
+  set: (value: boolean) => {
+    form.max_body_size = value ? 0 : 1024 ** 2
+  },
+})
+const bodyValue = computed({
+  get: () => form.max_body_size / bodyUnitBytes[bodyUnit.value],
+  set: (value: number) => {
+    form.max_body_size = Math.max(0, Math.round((Number(value) || 0) * bodyUnitBytes[bodyUnit.value]))
+  },
+})
+const bodyValueMax = computed(() => Math.floor(1024 ** 4 / bodyUnitBytes[bodyUnit.value]))
+
 function resetForm() {
+  siteCode.value = ''
   Object.assign(form, {
     name: '',
     enabled: true,
     listen_port: 80,
     domains: [''],
     protocol: 'http',
-    application_id: undefined,
-    certificate_id: null,
+    application_code: '',
+    certificate_code: '',
     redirect_https: false,
     proxy_timeout: 30,
     max_body_size: 0,
@@ -347,25 +447,34 @@ function resetForm() {
       bufferSize: 32768,
       ipMode: '',
       ipList: [],
+      connectionLimitEnabled: false,
+      connectionLimit: 100,
+      rateLimitEnabled: false,
+      rateLimitPerSecond: 10,
+      rateLimitBurst: 20,
     },
   })
   domainInput.value = ''
   domainError.value = ''
+  refreshIPListDraft()
 }
 
-const ipListText = computed({
-  get: () => form.options.ipList.join('\n'),
-  set: (value: string) => {
-    form.options.ipList = value
-      .split(/[\n,]/)
-      .map((v) => v.trim())
-      .filter(Boolean)
-  },
-})
+const ipListDraft = ref('')
 
-const selectedApplication = computed(() => applications.value.find((u) => u.id === form.application_id))
+function commitIPList() {
+  form.options.ipList = ipListDraft.value
+    .split(/[\n,，;；]/)
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+function refreshIPListDraft() {
+  ipListDraft.value = form.options.ipList.join('\n')
+}
+
+const selectedApplication = computed(() => applications.value.find((u) => u.code === form.application_code))
 const usableCerts = computed(() =>
-  certificates.value.filter((c) => c.status === 'valid' || c.id === form.certificate_id),
+  certificates.value.filter((c) => c.status === 'valid' || c.code === form.certificate_code),
 )
 
 function strategyLabel(strategy: string) {
@@ -464,7 +573,7 @@ function onProtocolChange(value: string | number | boolean) {
   } else {
     form.listen_port = 80
     form.redirect_https = false
-    form.certificate_id = null
+    form.certificate_code = ''
   }
 }
 
@@ -482,11 +591,11 @@ function validate(): boolean {
     ElMessage.warning('请至少填写一个域名')
     return false
   }
-  if (!form.application_id) {
+  if (!form.application_code) {
     ElMessage.warning('请选择应用服务')
     return false
   }
-  if (form.protocol === 'https' && !form.certificate_id) {
+  if (form.protocol === 'https' && !form.certificate_code) {
     ElMessage.warning('HTTPS 站点必须选择 SSL 证书')
     return false
   }
@@ -504,14 +613,15 @@ async function load() {
     certificates.value = certs.items ?? []
     if (isEdit.value) {
       const site = await api.get<Site>(`/sites/${siteId.value}`)
+      siteCode.value = site.code
       Object.assign(form, {
         name: site.name,
         enabled: site.enabled,
         listen_port: site.listen_port,
         domains: site.domains.length ? [...site.domains] : [''],
         protocol: site.protocol,
-        application_id: site.application_id,
-        certificate_id: site.certificate_id ?? null,
+        application_code: site.application_code,
+        certificate_code: site.certificate_code ?? '',
         redirect_https: site.redirect_https,
         proxy_timeout: site.proxy_timeout,
         max_body_size: site.max_body_size,
@@ -527,7 +637,14 @@ async function load() {
       })
       domainInput.value = ''
       domainError.value = ''
-      if (site.options.ipMode || site.options.requestHeaders?.length || site.options.responseHeaders?.length) {
+      refreshIPListDraft()
+      if (
+        site.options.ipMode ||
+        site.options.requestHeaders?.length ||
+        site.options.responseHeaders?.length ||
+        site.options.connectionLimitEnabled ||
+        site.options.rateLimitEnabled
+      ) {
         advancedOpen.value = ['advanced']
       }
     } else {
@@ -548,10 +665,10 @@ function applyTemplate(t: Record<string, any>) {
   form.listen_port = Number(t.listen_port) || 80
   form.domains = Array.isArray(t.domains) && t.domains.length ? [...t.domains] : ['']
   form.protocol = t.protocol === 'https' ? 'https' : 'http'
-  form.application_id = Number(t.application_id) || 0
-  form.certificate_id = t.certificate_id ?? null
+  form.application_code = String(t.application_code || '')
+  form.certificate_code = String(t.certificate_code || '')
   form.redirect_https = Boolean(t.redirect_https)
-  form.proxy_timeout = Number(t.proxy_timeout) || 30
+  form.proxy_timeout = t.proxy_timeout === 0 ? 0 : (Number(t.proxy_timeout) || 30)
   form.max_body_size = Number(t.max_body_size) || 0
   form.remark = String(t.remark || '')
   if (t.options) {
@@ -566,10 +683,12 @@ function applyTemplate(t: Record<string, any>) {
   }
   domainInput.value = ''
   domainError.value = ''
+  refreshIPListDraft()
 }
 
 async function save() {
   if (!validate()) return
+  commitIPList()
   saving.value = true
   const payload: SiteInput = {
     ...form,

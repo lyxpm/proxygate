@@ -31,12 +31,7 @@ type certDetail struct {
 // GetCertificateDetail returns metadata plus the public certificate PEM. The
 // private key is never returned by any API.
 func (s *Server) GetCertificateDetail(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	cert, err := s.Certs.Get(r.Context(), id)
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -63,12 +58,7 @@ func (s *Server) GetCertificateDetail(w http.ResponseWriter, r *http.Request) {
 
 // DownloadCertificate returns the certificate chain as a PEM attachment.
 func (s *Server) DownloadCertificate(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r, "id")
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	cert, err := s.Certs.Get(r.Context(), id)
+	cert, err := s.Certs.GetByCode(r.Context(), certificateCode(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -87,7 +77,7 @@ func (s *Server) DownloadCertificate(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = fmt.Sprintf("certificate-%d", cert.ID)
 	}
-	s.audit(r, "download_certificate", "certificate", cert.ID, "success", nil)
+	s.audit(r, "download_certificate", "certificate", cert.Code, "success", nil)
 	w.Header().Set("Content-Type", "application/x-pem-file")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pem"`, name))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(raw)))

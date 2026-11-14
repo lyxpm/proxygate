@@ -1855,6 +1855,101 @@ a {
   margin-bottom: 8px;
 }
 
+.body-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.body-size-control .el-checkbox {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.advanced-span {
+  grid-column: 1 / -1;
+}
+
+.ip-grid {
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.ip-grid .el-form-item {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.ip-grid .el-form-item__content {
+  flex: 1;
+}
+
+.ip-grid .el-textarea,
+.ip-grid .el-textarea__inner {
+  height: 100%;
+}
+
+.ip-grid .el-textarea__inner {
+  min-height: 58px;
+}
+
+.ip-grid .el-select,
+.ip-grid .el-select__wrapper {
+  height: 100%;
+  min-height: 58px;
+}
+
+.ip-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.protection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.protection-card {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+}
+
+.protection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.protection-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 10px;
+}
+
+.protection-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.protection-field .el-input-number {
+  width: 110px;
+}
+
 .advanced-switches {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1897,9 +1992,35 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .ip-grid,
+  .protection-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .body-size-control {
+    flex-wrap: wrap;
+  }
+
   .advanced-switches {
     grid-template-columns: 1fr;
   }
+}
+
+.site-dialog-code,
+.app-code {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: #0f766e;
+  background: #f0fdfa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.app-code {
+  margin: 0 0 12px;
 }
 
 

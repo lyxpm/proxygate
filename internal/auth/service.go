@@ -331,6 +331,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint, oldPassword, 
 	if err := s.store.DeleteUserSessions(ctx, userID); err != nil {
 		return err
 	}
+	_ = s.store.DeleteUserAPITokens(ctx, userID)
 	if s.passwordChanged != nil {
 		s.passwordChanged()
 	}
@@ -538,7 +539,7 @@ func InitialPasswordFile(dataDir, password string) (string, error) {
 
 // CreateAPIToken creates a scoped bearer token. The plaintext is returned only
 // once; only its SHA-256 hash is persisted.
-func (s *Service) CreateAPIToken(ctx context.Context, name string, readOnly bool, expiresAt *time.Time) (string, *storage.APIToken, error) {
+func (s *Service) CreateAPIToken(ctx context.Context, userID uint, name string, readOnly bool, expiresAt *time.Time) (string, *storage.APIToken, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 128 {
 		return "", nil, apperr.InvalidField("name", "token name is required and must be at most 128 characters")
@@ -553,15 +554,19 @@ func (s *Service) CreateAPIToken(ctx context.Context, name string, readOnly bool
 	}
 	raw = "pg_" + raw
 	row := &storage.APIToken{
-		Name: name, TokenHash: hashToken(raw), Scopes: storage.StringList(scopes),
+		UserID: &userID, Name: name, TokenHash: hashToken(raw), Scopes: storage.StringList(scopes),
 	}
-	if expiresAt != nil {
-		utc := expiresAt.UTC()
-		if !utc.After(time.Now()) {
-			return "", nil, apperr.InvalidField("expires_at", "expiry must be in the future")
-		}
-		row.ExpiresAt = &utc
+	if expiresAt == nil {
+		// Tokens should not be immortal by default; automation can still set an
+		// explicit later expiry when it really needs a long-lived credential.
+		def := time.Now().Add(90 * 24 * time.Hour)
+		expiresAt = &def
 	}
+	utc := expiresAt.UTC()
+	if !utc.After(time.Now()) {
+		return "", nil, apperr.InvalidField("expires_at", "expiry must be in the future")
+	}
+	row.ExpiresAt = &utc
 	if err := s.store.CreateAPIToken(ctx, row); err != nil {
 		return "", nil, err
 	}
@@ -580,6 +585,12 @@ func (s *Service) AuthenticateAPIToken(ctx context.Context, raw string) (*storag
 	now := time.Now()
 	if row.ExpiresAt != nil && !row.ExpiresAt.After(now) {
 		return nil, apperr.New(apperr.Unauthorized, "API token expired")
+	}
+	if row.UserID != nil {
+		owner, err := s.store.GetUser(ctx, *row.UserID)
+		if err != nil || owner == nil || !owner.Enabled {
+			return nil, apperr.New(apperr.Unauthorized, "API token owner is disabled")
+		}
 	}
 	if row.LastUsedAt == nil || now.Sub(*row.LastUsedAt) > time.Minute {
 		if err := s.store.TouchAPIToken(ctx, row.ID, now); err == nil {

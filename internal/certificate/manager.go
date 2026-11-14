@@ -131,6 +131,15 @@ func (m *Manager) Get(ctx context.Context, id uint) (*storage.Certificate, error
 	return c, err
 }
 
+// GetByCode returns one certificate by its immutable business code.
+func (m *Manager) GetByCode(ctx context.Context, code string) (*storage.Certificate, error) {
+	c, err := m.store.GetCertificateByCode(ctx, code)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil, apperr.NotFoundf("certificate %s not found", code)
+	}
+	return c, err
+}
+
 // CreateIssue validates the order and creates a pending certificate record.
 // The actual ACME exchange is performed by RunIssue.
 func (m *Manager) CreateIssue(ctx context.Context, in IssueRequest) (*storage.Certificate, error) {

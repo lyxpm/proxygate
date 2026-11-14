@@ -19,8 +19,8 @@ func TestUpdateMergesNodes(t *testing.T) {
 	created, err := svc.Create(ctx, Input{
 		Name: "web", Strategy: "round_robin",
 		Nodes: []NodeInput{
-			{Address: "http://127.0.0.1:8080", Weight: 1},
-			{Address: "http://127.0.0.1:8081", Weight: 2},
+			{Address: "http://192.0.2.10:8080", Weight: 1},
+			{Address: "http://192.0.2.10:8081", Weight: 2},
 		},
 	})
 	if err != nil {
@@ -30,8 +30,8 @@ func TestUpdateMergesNodes(t *testing.T) {
 	updated, err := svc.Update(ctx, created.ID, Input{
 		Name: "web2", Strategy: "weighted_round_robin",
 		Nodes: []NodeInput{
-			{ID: firstID, Address: "http://127.0.0.1:8080", Weight: 5},
-			{Address: "http://127.0.0.1:8082", Weight: 1},
+			{ID: firstID, Address: "http://192.0.2.10:8080", Weight: 5},
+			{Address: "http://192.0.2.10:8082", Weight: 1},
 		},
 	})
 	if err != nil {

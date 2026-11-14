@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/proxygate/proxygate/internal/api/response"
+	"github.com/proxygate/proxygate/internal/apperr"
 	"github.com/proxygate/proxygate/internal/storage"
 )
 
 type tokenView struct {
 	ID         uint       `json:"id"`
+	UserID     *uint      `json:"user_id,omitempty"`
 	Name       string     `json:"name"`
 	Scopes     []string   `json:"scopes"`
 	ExpiresAt  *time.Time `json:"expires_at"`
@@ -19,7 +21,7 @@ type tokenView struct {
 
 func toTokenView(t storage.APIToken) tokenView {
 	return tokenView{
-		ID: t.ID, Name: t.Name, Scopes: t.Scopes,
+		ID: t.ID, UserID: t.UserID, Name: t.Name, Scopes: t.Scopes,
 		ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt,
 	}
 }
@@ -49,14 +51,19 @@ func (s *Server) CreateAPIToken(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	raw, row, err := s.Auth.CreateAPIToken(r.Context(), in.Name, in.ReadOnly, in.ExpiresAt)
-	if err != nil {
-		s.audit(r, "create_api_token", "api_token", nil, "failure", nil)
-		s.fail(w, r, err)
+	if u := userFrom(r); u == nil {
+		s.fail(w, r, apperr.New(apperr.Unauthorized, "not authenticated"))
 		return
+	} else {
+		raw, row, err := s.Auth.CreateAPIToken(r.Context(), u.ID, in.Name, in.ReadOnly, in.ExpiresAt)
+		if err != nil {
+			s.audit(r, "create_api_token", "api_token", nil, "failure", nil)
+			s.fail(w, r, err)
+			return
+		}
+		s.audit(r, "create_api_token", "api_token", row.ID, "success", map[string]any{"name": row.Name, "read_only": in.ReadOnly})
+		response.Created(w, map[string]any{"token": raw, "item": toTokenView(*row)})
 	}
-	s.audit(r, "create_api_token", "api_token", row.ID, "success", map[string]any{"name": row.Name, "read_only": in.ReadOnly})
-	response.Created(w, map[string]any{"token": raw, "item": toTokenView(*row)})
 }
 
 // DeleteAPIToken revokes a token.

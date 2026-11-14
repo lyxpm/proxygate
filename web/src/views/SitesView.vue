@@ -11,17 +11,17 @@
       </div>
       <div class="toolbar-right">
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button :icon="Upload" @click="openImport">导入站点</el-button>
-        <el-button type="primary" :icon="Plus" @click="openEditor()">新建站点</el-button>
+        <el-button v-if="isAdmin" :icon="Upload" @click="openImport">导入站点</el-button>
+        <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openEditor()">新建站点</el-button>
       </div>
     </div>
 
     <div class="card">
       <el-table v-loading="loading" :data="paged" style="width: 100%">
         <el-table-column label="站点" min-width="190">
-          <template #default="{ row }">
+          <template #default="{ row, $index }">
             <div style="font-weight: 600">{{ row.name }}</div>
-            <div class="muted tiny" style="margin-top: 2px">#{{ row.id }}</div>
+            <div class="muted tiny" style="margin-top: 2px">#{{ (page - 1) * pageSize + $index + 1 }}</div>
           </template>
         </el-table-column>
         <el-table-column label="域名" min-width="240">
@@ -58,12 +58,12 @@
         </el-table-column>
         <el-table-column label="操作" width="300">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditor(row.id)">编辑</el-button>
-            <el-button link type="primary" size="small" @click="toggle(row)">{{ row.enabled ? '禁用' : '启用' }}</el-button>
+            <el-button v-if="isAdmin" link type="primary" size="small" @click="openEditor(row.code)">编辑</el-button>
+            <el-button v-if="isAdmin" link type="primary" size="small" @click="toggle(row)">{{ row.enabled ? '禁用' : '启用' }}</el-button>
             <el-button link type="info" size="small" @click="viewLogs(row)">日志</el-button>
-            <el-button link type="info" size="small" @click="copySite(row)">复制</el-button>
-            <el-button link type="info" size="small" @click="exportSite(row)">导出</el-button>
-            <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
+            <el-button v-if="isAdmin" link type="info" size="small" @click="copySite(row)">复制</el-button>
+            <el-button v-if="isAdmin" link type="info" size="small" @click="exportSite(row)">导出</el-button>
+            <el-button v-if="isAdmin" link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -114,12 +114,15 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadFile } from 'element-plus'
 import { Plus, Refresh, Search, Upload } from '@element-plus/icons-vue'
 import { api, formatTime } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import type { Page, Site } from '@/api/types'
 import SiteEditorDialog from './SiteEditView.vue'
 
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'admin')
 const router = useRouter()
 const editorOpen = ref(false)
-const editingId = ref(0)
+const editingId = ref('')
 const editorTemplate = ref<Record<string, any> | null>(null)
 const sites = ref<Site[]>([])
 const loading = ref(false)
@@ -169,7 +172,7 @@ async function load() {
 
 async function toggle(row: Site) {
   try {
-    await api.post(`/sites/${row.id}/${row.enabled ? 'disable' : 'enable'}`)
+    await api.post(`/sites/${row.code}/${row.enabled ? 'disable' : 'enable'}`)
     ElMessage.success(row.enabled ? '站点已禁用' : '站点已启用')
     await load()
   } catch (err) {
@@ -180,7 +183,7 @@ async function toggle(row: Site) {
 async function remove(row: Site) {
   try {
     await ElMessageBox.confirm(`确认删除站点 “${row.name}”？该操作不可撤销。`, '删除站点', { type: 'warning' })
-    await api.del(`/sites/${row.id}`)
+    await api.del(`/sites/${row.code}`)
     ElMessage.success('站点已删除')
     await load()
   } catch (err) {
@@ -188,14 +191,14 @@ async function remove(row: Site) {
   }
 }
 
-function openEditor(id = 0) {
-  editingId.value = id
+function openEditor(code = '') {
+  editingId.value = code
   editorTemplate.value = null
   editorOpen.value = true
 }
 
 function viewLogs(row: Site) {
-  router.push({ path: '/logs', query: { site_id: String(row.id) } })
+  router.push({ path: '/logs', query: { site_code: row.code } })
 }
 
 function openImport() {
@@ -233,9 +236,9 @@ async function submitImport() {
 
 async function copySite(row: Site) {
   try {
-    const data = await api.get<unknown>(`/sites/${row.id}/export`)
+    const data = await api.get<unknown>(`/sites/${row.code}/export`)
     editorTemplate.value = data as Record<string, any>
-    editingId.value = 0
+    editingId.value = ''
     editorOpen.value = true
     ElMessage.info('已载入配置，请修改域名后保存')
   } catch (err) {
@@ -245,7 +248,7 @@ async function copySite(row: Site) {
 
 async function exportSite(row: Site) {
   try {
-    const data = await api.get<unknown>(`/sites/${row.id}/export`)
+    const data = await api.get<unknown>(`/sites/${row.code}/export`)
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
